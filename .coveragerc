@@ -1,0 +1,11 @@
+[run]
+branch = True
+relative_files = True
+omit =
+    fennec/__init__.py
+
+[coverage:report]
+skip_empty = true
+
+exclude_lines =
+    if __name__ == .__main__.:

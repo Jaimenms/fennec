@@ -1,0 +1,5 @@
+cache-dir="."
+virtualenvs.create = true
+virtualenvs.in-project = false
+virtualenvs.path = "{cache-dir}/.virtualenvs"  # /path/to/cache/directory/virtualenvs
+virtualenvs.prompt = "{project_name}-py{python_version}"

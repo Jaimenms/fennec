@@ -1,0 +1,10 @@
+.virtualenvs
+virtualenvs
+.idea
+__pycache__
+.pytest_cache
+dist
+cache
+artifacts
+.coverage
+requirements_layer.txt
