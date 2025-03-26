@@ -13,5 +13,5 @@ __all__ = [
     "import_bi_daily_tariff",
     "import_bi_weekly_tariff",
     "import_tri_daily_tariff",
-    "import_tri_weekly_tariff"
+    "import_tri_weekly_tariff",
 ]

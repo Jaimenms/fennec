@@ -1,6 +1,7 @@
-from .electrical_vehicle import ElectricalVehicle
-from .grid import Grid
-from .photovoltaic_panel import PhotovoltaicPanel
-from .battery import Battery
+from .battery import BatteryBlock
+from .fixed_battery import FixedBatteryBlock
+from .vehicle_battery import VehicleBatteryBlock
+from .grid import GridBlock
+from .photovoltaic import PhotovoltaicBlock
 
-__all__ = ['ElectricalVehicle', 'Grid', 'PhotovoltaicPanel', 'Battery']
+__all__ = ["VehicleBatteryBlock", "FixedBatteryBlock", "GridBlock", "PhotovoltaicBlock", "BatteryBlock"]

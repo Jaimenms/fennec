@@ -4,7 +4,6 @@ from pysolar.solar import get_altitude, get_azimuth
 from pysolar.radiation import get_radiation_direct
 
 
-
 @staticmethod
 def calculate_house_load_power(utc_timestamp, area, num_residents, longitude):
     """
@@ -86,7 +85,6 @@ def calculate_pv_power(utc_timestamp, area, efficiency, latitude, longitude, til
     # Convert the timestamp to a UTC datetime object.
     dt = datetime.fromtimestamp(utc_timestamp, tz=timezone.utc)
 
-
     # Get the solar altitude and azimuth using PySolar.
     altitude = get_altitude(latitude, longitude, dt)
     # If the sun is below the horizon, no power is produced.
@@ -103,9 +101,9 @@ def calculate_pv_power(utc_timestamp, area, efficiency, latitude, longitude, til
 
     # Calculate the incidence angle using the formula:
     # cos(theta_i) = sin(alt)*cos(tilt) + cos(alt)*sin(tilt)*cos(solar_azimuth - panel_azimuth)
-    cos_theta_i = (math.sin(alt_rad) * math.cos(tilt_rad) +
-                   math.cos(alt_rad) * math.sin(tilt_rad) *
-                   math.cos(solar_azimuth_rad - panel_azimuth_rad))
+    cos_theta_i = math.sin(alt_rad) * math.cos(tilt_rad) + math.cos(alt_rad) * math.sin(tilt_rad) * math.cos(
+        solar_azimuth_rad - panel_azimuth_rad
+    )
 
     # If the sun is behind the panel, no effective irradiance is received.
     if cos_theta_i < 0:

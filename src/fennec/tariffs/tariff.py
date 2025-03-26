@@ -39,4 +39,3 @@ class Tariff:
     def __call__(self, t: datetime):
         price_name = self.get_price_name(t)
         return self.get_price(price_name)
-
