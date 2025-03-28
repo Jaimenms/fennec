@@ -1,9 +1,12 @@
-from typing import List, Optional
+from typing import List, Optional, Tuple
 import pyomo.environ as pyo
 from pyomo.environ import Binary, PositiveReals
 
+from .photovoltaic import PhotovoltaicBlock
+from .grid import GridBlock
 
-class BatteryBlock(pyo.Block):
+
+class BatteryBlock(pyo.ScalarBlock):
 
     def __init__(
         self,
@@ -11,95 +14,40 @@ class BatteryBlock(pyo.Block):
         charging_power: float,
         discharging_power: float,
         capacity: float,
-        initial_soc: Optional[float],
-        final_soc: Optional[float],
-        threshold_soc: Optional[float],
-        threshold_index: Optional[int],
+        soc_0: Optional[float],
+        soc_specifications: Optional[List[Tuple[int, float, ]]],
+        # initial_soc: Optional[float],
+        # final_soc: Optional[float],
+        # threshold_soc: Optional[float],
+        # threshold_index: Optional[int],
         is_available: List[bool],
         has_variable_charge_power: bool,
-        has_selfconsumption_mode: bool,
+        has_self_consumption_mode: bool,
         charging_efficiency: float,
         discharging_efficiency: float,
         command_penalty: List[float],
+        load_power: List[float] = None,
+        pv_power: List[float] = None,
         *args,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
 
-        t_index = [i for i in range(len(timestamps))]
+        # Constants
+        n_index = len(timestamps)
+        t_index = [i for i in range(n_index)]
+        delta_timestamps = [timestamps[i + 1] - timestamps[i] for i in range(n_index - 1)] + [
+            timestamps[-1] - timestamps[-2]
+        ]
 
+        ###################### INDEX #############################
         self.t = pyo.Set(initialize=t_index)
         self.t_shifted = pyo.Set(initialize=t_index[1:])
 
-        self.m = None
-        self.x = None
-        self.z = None
-        self.u = None
-        self.v = None
-        self.soc = None
-        self.energy_to = None
-        self.energy_from = None
-        self.set_variables(has_variable_charge_power, has_selfconsumption_mode)
-
-        self.diff_m = None
-        self.energy_to_limit = None
-        self.energy_from_limit = None
-        self.is_available_param = None
-        self.command_penalty = None
-        self.set_parameters(
-            timestamps, has_selfconsumption_mode, charging_efficiency, discharging_efficiency, charging_power, discharging_power, is_available, command_penalty
-        )
-
-        self.diff_x = None
-        self.diff_z = None
-        self.diff_m_const_1 = None
-        self.diff_m_const_2 = None
-        self.diff_x_const_1 = None
-        self.diff_x_const_2 = None
-        self.diff_z_const_1 = None
-        self.diff_z_const_2 = None
-        self.set_diff_consts()
-
-        self.energy_to_const = None
-        self.energy_from_const = None
-        self.set_energy_consts()
-
-        self.settlement_const_1 = None
-        self.settlement_const_2 = None
-        self.set_settlement_consts()
-
-        self.m_1_const_u = None
-        self.m_1_const_v = None
-        self.m_0_const_x = None
-        self.m_0_const_z = None
-        self.set_arbitrage_consts()
-
-        self.is_available_const_u = None
-        self.is_available_const_v = None
-        self.is_available_const_x = None
-        self.is_available_const_z = None
-        self.set_availability_consts()
-
-        self.battery_capacity_const = None
-        self.is_available_const = None
-        self.initial_soc_const = None
-        self.final_soc_const = None
-        self.threshold_soc_const = None
-        self.set_battery_consts(capacity, initial_soc, final_soc, threshold_soc, threshold_index)
-
-        self.fob = None
-        self.fob_const = None
-        self.set_objective()
-
-    def set_variables(self, has_variable_charge_power, has_selfconsumption_mode):
-        """
-        Set the variables for the battery block.
-        :return:
-        """
+        #################### VARIABLES ###########################
 
         # Mode variable: m[t] = 1 means arbitrage mode; m[t] = 0 means self consumption.
-        if has_selfconsumption_mode:
-            self.m = pyo.Var(self.t, domain=Binary)
+        self.m = pyo.Var(self.t, domain=Binary)
 
         # Binary variable for charging power (dimensionless) in arbitrage mode.
         self.x = pyo.Var(self.t, domain=Binary)
@@ -108,13 +56,13 @@ class BatteryBlock(pyo.Block):
         self.z = pyo.Var(self.t, domain=Binary)
 
         # Continuous charging power (dimensionless) for self consumption.
-        self.u = pyo.Var(self.t, domain=(0, 1) if has_variable_charge_power else Binary)
+        self.u = pyo.Var(self.t, bounds=(0, 1), domain=PositiveReals if has_variable_charge_power else Binary)
 
         # Continuous discharging power (dimensionless) for self consumption.
-        self.v = pyo.Var(self.t, domain=(0, 1) if has_variable_charge_power else Binary)
+        self.v = pyo.Var(self.t, bounds=(0, 1), domain=PositiveReals if has_variable_charge_power else Binary)
 
-        # State of charge in %
-        self.soc = pyo.Var(self.t, domain=(0, 100.0))
+        # State of charge
+        self.soc = pyo.Var(self.t, bounds=(0, 100), domain=PositiveReals)
 
         # Energy to battery (charging)
         self.energy_to = pyo.Var(self.t, domain=PositiveReals)
@@ -123,85 +71,30 @@ class BatteryBlock(pyo.Block):
         self.energy_from = pyo.Var(self.t, domain=PositiveReals)
 
 
-    def set_parameters(
-        self, timestamps, has_selfconsumption_mode, charging_efficiency, discharging_efficiency, charging_power, discharging_power, is_available, command_penalty
-    ):
+        #################### PARAMETERS ###########################
 
-        delta_timestamps = [timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)] + [
-            timestamps[-1] - timestamps[-2]
-        ]
+        # Energy limits for charging in kWh
+        self.energy_to_limit = pyo.Param(self.t, initialize={
+            i: charging_efficiency * charging_power * delta_timestamp_i / 3600
+            for i, delta_timestamp_i in enumerate(delta_timestamps)
+        })
 
-        if not has_selfconsumption_mode:
-            self.m = pyo.Param(self.t, initialize={i: 1 for i, _ in enumerate(timestamps)})
+        # Energy limits for discharging in kWh
+        self.energy_from_limit = pyo.Param(self.t, initialize={
+            i: (1/discharging_efficiency) * discharging_power * delta_timestamp_i / 3600
+            for i, delta_timestamp_i in enumerate(delta_timestamps)
+        })
 
+        # Command penalty
+        self.command_penalty = pyo.Param(self.t, initialize={i: p * (i+1) / len(t_index) for i, p in enumerate(command_penalty)})
 
-        # Energy limits for charging
-        _to_map = {
-            t_i: charging_efficiency * charging_power * delta_timestamp_i / 3600
-            for t_i, delta_timestamp_i in zip(self.t, delta_timestamps)
-        }
-        self.energy_to_limit = pyo.Param(self.t, initialize=_to_map)
+        #################### CONSTRAINTS ###########################
 
-        # Energy limits for discharging
-        _from_map = {
-            t_i: (1/discharging_efficiency) * discharging_power * delta_timestamp_i / 3600
-            for t_i, delta_timestamp_i in zip(self.t, delta_timestamps)
-        }
-        self.energy_from_limit = pyo.Param(self.t, initialize=_from_map)
+        # If the battery does not have self consumption mode, force m[t] to be always 1.
+        if not has_self_consumption_mode:
+            self.force_m_const = pyo.Constraint(self.t, rule=lambda model, i: model.m[i] == 1)
 
-        self.is_available_param = pyo.Param(
-            self.t, initialize={i: is_available * 1  for i, is_available_i in enumerate(is_available)}
-        )
-
-        self.command_penalty = pyo.Param(self.t, initialize={i: p for i, p in enumerate(command_penalty)})
-
-
-    def set_diff_consts(self):
-        """
-        Set the constraints for the Switching variables.
-        :return:
-        """
-
-        self.diff_m = pyo.Var(self.t, domain=Binary)
-        self.diff_x = pyo.Var(self.t, domain=Binary)
-        self.diff_z = pyo.Var(self.t, domain=Binary)
-
-        self.diff_m_const_1 = pyo.Constraint(
-            self.t_shifted, rule=lambda model, i: model.diff_m[i] >= model.m[i - 1] - model.m[i]
-        )
-        self.diff_m_const_2 = pyo.Constraint(
-            self.t_shifted, rule=lambda model, i: model.diff_m[i] >= model.m[i] - model.m[i - 1]
-        )
-        self.diff_x_const_1 = pyo.Constraint(
-            self.t_shifted, rule=lambda model, i: model.diff_x[i] >= model.x[i - 1] - model.x[i]
-        )
-        self.diff_x_const_2 = pyo.Constraint(
-            self.t_shifted, rule=lambda model, i: model.diff_x[i] >= model.x[i] - model.x[i - 1]
-        )
-        self.diff_z_const_1 = pyo.Constraint(
-            self.t_shifted, rule=lambda model, i: model.diff_z[i] >= model.z[i - 1] - model.z[i]
-        )
-        self.diff_z_const_2 = pyo.Constraint(
-            self.t_shifted, rule=lambda model, i: model.diff_z[i] >= model.z[i] - model.z[i - 1]
-        )
-
-    def set_settlement_consts(self):
-        """
-        Set the constraints for the settlement variables.
-        :return:
-        """
-        self.settlement_const_1 = pyo.Constraint(
-            self.t, rule=lambda model, i: model.energy_from[i] <= model.energy_from_limit[i] * model.settling[i]
-        )
-        self.settlement_const_2 = pyo.Constraint(
-            self.t, rule=lambda model, i: model.energy_to[i] <= model.energy_to_limit[i] * (1.0 - model.settling[i])
-        )
-
-    def set_energy_consts(self):
-        """
-        Set the constraints for the energy variables.
-        :return:
-        """
+        # Guarantee that the energy to and from the battery are within the limits.
         self.energy_to_const = pyo.Constraint(
             self.t, rule=lambda model, i: model.energy_to[i] == model.energy_to_limit[i] * (model.x[i] + model.u[i])
         )
@@ -209,7 +102,23 @@ class BatteryBlock(pyo.Block):
             self.t, rule=lambda model, i: model.energy_from[i] == model.energy_from_limit[i] * (model.z[i] + model.v[i])
         )
 
-    def set_arbitrage_consts(self):
+        # Settlement for x and z
+        self.settling_1 = pyo.Var(self.t, domain=Binary)
+        self.settlement_const_1 = pyo.Constraint(
+            self.t, rule=lambda model, i: model.x[i] <= model.settling_1[i]
+        )
+        self.settlement_const_2 = pyo.Constraint(
+            self.t, rule=lambda model, i: model.z[i] <= (1.0 - model.settling_1[i])
+        )
+
+        # Settlement for u and v
+        self.settling_2 = pyo.Var(self.t, domain=Binary)
+        self.settlement_const_3 = pyo.Constraint(
+            self.t, rule=lambda model, i: model.u[i] <= model.settling_2[i]
+        )
+        self.settlement_const_4 = pyo.Constraint(
+            self.t, rule=lambda model, i: model.v[i] <= (1.0 - model.settling_2[i])
+        )
 
         # In arbitrage mode (m[t] = 1), force u[t] and v[t] to zero.
         self.m_1_const_u = pyo.Constraint(self.t, rule=lambda model, i: model.u[i] <= (1 - model.m[i]))
@@ -219,41 +128,117 @@ class BatteryBlock(pyo.Block):
         self.m_0_const_x = pyo.Constraint(self.t, rule=lambda model, i: model.x[i] <= model.m[i])
         self.m_0_const_z = pyo.Constraint(self.t, rule=lambda model, i: model.z[i] <= model.m[i])
 
-    def set_availability_consts(self):
+        # Initial condition for m
+        self.initial_m_const = pyo.Constraint(rule=lambda model: model.m[t_index[0]] == 0)
 
-        self.is_available_const_u = pyo.Constraint(self.t, rule=lambda model, i: model.u[i] <= model.is_available_param[i])
-        self.is_available_const_v = pyo.Constraint(self.t, rule=lambda model, i: model.v[i] <= model.is_available_param[i])
-        self.is_available_const_x = pyo.Constraint(self.t, rule=lambda model, i: model.x[i] <= model.is_available_param[i])
-        self.is_available_const_z = pyo.Constraint(self.t, rule=lambda model, i: model.z[i] <= model.is_available_param[i])
+        # Guarantee that if the battery is not available, the commands are zero.
+        if is_available is not None:
+            self.is_available_param = pyo.Param(
+                self.t, initialize={i: is_available_i * 1 for i, is_available_i in enumerate(is_available)}
+            )
+            self.is_available_const_u = pyo.Constraint(self.t, rule=lambda model, i: model.u[i] <= model.is_available_param[i])
+            self.is_available_const_v = pyo.Constraint(self.t, rule=lambda model, i: model.v[i] <= model.is_available_param[i])
+            self.is_available_const_x = pyo.Constraint(self.t, rule=lambda model, i: model.x[i] <= model.is_available_param[i])
+            self.is_available_const_z = pyo.Constraint(self.t, rule=lambda model, i: model.z[i] <= model.is_available_param[i])
 
-    def set_battery_consts(self, capacity, initial_soc, final_soc, threshold_soc, threshold_index):
+        # Solar surplus and deficit conditions for self consumption mode
+        if has_self_consumption_mode:
 
+            big_m = max(max(load_power), max(pv_power))
+
+            # Solar Surplus condition in self-consumption mode will force battery charge
+            self.solar_surplus = pyo.Param(self.t, initialize={
+                i: max(0, pv_power_i - load_power_i) * delta_timestamp_i / 3600
+                for i, (delta_timestamp_i, load_power_i, pv_power_i) in
+                enumerate(zip(delta_timestamps, load_power, pv_power))
+            })
+            self.solar_surplus_const_1 = pyo.Constraint(
+                self.t,
+                rule=lambda model, i: model.u[i] * model.energy_to_limit[i] <= model.solar_surplus[i] + big_m * model.m[i]
+            )
+            self.solar_surplus_const_2 = pyo.Constraint(
+                self.t,
+                rule=lambda model, i: model.u[i] * model.energy_to_limit[i] >= model.solar_surplus[i] - big_m * model.m[i]
+            )
+
+            # Solar Deficit condition in self-consumption mode will force battery discharge
+            self.solar_deficit = pyo.Param(self.t, initialize={
+                i: max(0, load_power_i - pv_power_i) * delta_timestamp_i / 3600
+                for i, (delta_timestamp_i, load_power_i, pv_power_i) in
+                enumerate(zip(delta_timestamps, load_power, pv_power))
+            })
+            self.solar_deficit_const_1 = pyo.Constraint(
+                self.t,
+                rule=lambda model, i: model.v[i] * model.energy_from_limit[i] <= model.solar_deficit[i] + big_m * model.m[i]
+            )
+            self.solar_deficit_const_2 = pyo.Constraint(
+                self.t,
+                rule=lambda model, i: model.v[i] * model.energy_from_limit[i] >= model.solar_deficit[i] - big_m * model.m[i]
+            )
+
+        # Battery energy balance
         self.battery_capacity_const = pyo.Constraint(
             self.t_shifted,
-            rule=lambda model, i: model.soc[i]
-            == model.soc[i - 1] + model.energy_to[i] / capacity - model.energy_from[i] / capacity,
+            rule=lambda model, i: capacity * model.soc[i] == capacity * model.soc[i-1] + 100 * model.energy_to[i-1] - 100 * model.energy_from[i-1]
         )
 
-        self.is_available_const = pyo.Constraint(self.t, rule=lambda model, i: model.x[i] <= model.is_available_param[i])
+        # Battery SOC Initial
+        if soc_0 is not None:
+            self.initial_soc_const = pyo.Constraint(rule=lambda model: model.soc[t_index[0]] == soc_0)
 
-        if initial_soc is not None:
-            self.initial_soc_const = pyo.Constraint(rule = lambda model: model.soc[0] == initial_soc)
-        if final_soc is not None:
-            self.final_soc_const = pyo.Constraint(rule = lambda model: model.soc[-1] == final_soc)
-        if threshold_soc is not None:
-            self.threshold_soc_const = pyo.Constraint(rule=lambda model: model.soc[threshold_index] >= threshold_soc)
+        # Battery SOC Specifications
+        self.soc_specification_const = []
+        for soc_index, soc_value in soc_specifications:
+            self.soc_specification_const.append(pyo.Constraint(rule=lambda model: model.soc[t_index[soc_index]] >= soc_value))
 
-    def set_objective(self):
-        """
-        Set the objective function for the battery block.
-        :param start_charging_penalty:
-        :return:
-        """
+        #################### OBJECTIVE ###########################
+
         self.fob = pyo.Var(self.t)
+
+        # Calculate the differential between the binary variable m.
+        self.diff_m = pyo.Var(self.t, domain=Binary)
+        self.diff_m_const_1 = pyo.Constraint(
+            self.t_shifted, rule=lambda model, i: model.diff_m[i] >= model.m[i - 1] - model.m[i]
+        )
+        self.diff_m_const_2 = pyo.Constraint(
+            self.t_shifted, rule=lambda model, i: model.diff_m[i] >= model.m[i] - model.m[i - 1]
+        )
+
+        # Calculate the differential between the binary variable x.
+        self.diff_x = pyo.Var(self.t, domain=Binary)
+        self.diff_x_const_1 = pyo.Constraint(
+            self.t_shifted, rule=lambda model, i: model.diff_x[i] >= model.x[i - 1] - model.x[i]
+        )
+        self.diff_x_const_2 = pyo.Constraint(
+            self.t_shifted, rule=lambda model, i: model.diff_x[i] >= model.x[i] - model.x[i - 1]
+        )
+
+        # Calculate the differential between the binary variable z.
+        self.diff_z = pyo.Var(self.t, domain=Binary)
+        self.diff_z_const_1 = pyo.Constraint(
+            self.t_shifted, rule=lambda model, i: model.diff_z[i] >= model.z[i - 1] - model.z[i]
+        )
+        self.diff_z_const_2 = pyo.Constraint(
+            self.t_shifted, rule=lambda model, i: model.diff_z[i] >= model.z[i] - model.z[i - 1]
+        )
+
+        # Objective function
         self.fob_const = pyo.Constraint(
             self.t,
-            rule=lambda model, i: model.fob[i]
-            == self.command_penalty[i] * (model.diff_m[i] + model.diff_x[i] + model.diff_z[i]),
+            rule=lambda model, i: model.fob[i] == self.command_penalty[i] * (model.diff_m[i] + model.diff_x[i] + model.diff_z[i]),
         )
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 

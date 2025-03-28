@@ -31,7 +31,7 @@ class VehicleBatteryBlock(BatteryBlock):
             threshold_index=threshold_index,
             is_available=is_available,
             has_variable_charge_power=False,
-            has_selfconsumption_mode=False,
+            has_self_consumption_mode=False,
             charging_efficiency=charging_efficiency,
             discharging_efficiency=1.0,
             command_penalty=command_penalty,  # in $ per charging session

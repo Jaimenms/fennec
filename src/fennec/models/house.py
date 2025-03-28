@@ -8,6 +8,7 @@ class House(pyo.ConcreteModel):
 
     def __init__(
         self,
+        name: str,
         timestamps: List[float],
         load_power: List[float],
         grid: Optional[GridBlock] = pyo.Block(),
@@ -20,6 +21,8 @@ class House(pyo.ConcreteModel):
 
         super().__init__(*args, **kwargs)
 
+        self.name = name
+
         t_index = [i for i in range(len(timestamps))]
 
         self.t = pyo.Set(initialize=t_index)
@@ -31,14 +34,14 @@ class House(pyo.ConcreteModel):
         self.ev = ev
         self.bat = bat
 
-        self.load_energy = None
+        # self.load_energy = None
         self.set_parameters(timestamps, load_power)
 
-        self.balance_const = None
+        # self.balance_const = None
         self.set_balance_const()
 
-        self.fob = None
-        self.fob_const = None
+        # self.fob = None
+        # self.fob_const = None
         self.set_objective()
 
     def set_parameters(self, timestamps, load_power):
@@ -57,29 +60,38 @@ class House(pyo.ConcreteModel):
 
     def set_objective(self):
 
-        def objective_rule(model: pyo.Model, i):
+        def rule(model: pyo.Model):
 
-            fob_grid = model.grid.fob[i] if model.grid else 0
-            fob_pv = model.pv.fob[i] if model.pv else 0
-            fob_ev = model.ev.fob[i] if model.ev else 0
-            fob_bat = model.bat.fob[i] if model.bat else 0
+            fob = 0
+            for i in model.t:
+                if hasattr(model.grid, 'fob'):
+                    fob += model.grid.fob[i]
+                if hasattr(model.pv, 'fob'):
+                    fob += model.pv.fob[i]
+                if hasattr(model.ev, 'fob'):
+                    fob += model.ev.fob[i]
+                if hasattr(model.bat, 'fob'):
+                    fob += model.bat.fob[i]
 
-            return model.fob == fob_grid + fob_pv + fob_ev + fob_bat
+            return fob
 
-        self.fob = pyo.Var(self.t)
-        self.fob_const = pyo.Constraint(self.t, rule=objective_rule)
+        self.obj = pyo.Objective(rule=rule, sense=pyo.minimize)
+
 
     def set_balance_const(self):
 
         def balance_rule(model: pyo.Model, i):
 
-            energy_to_grid = model.grid.energy_to[i] if model.grid else 0
             load = model.load_energy[i]
-            energy_from_grid = model.grid.energy_from[i] if model.grid else 0
-            energy_from_pv = model.pv.energy_from[i] if model.pv else 0
-            energy_to_ev = model.ev.energy_to[i] if model.ev else 0
+            energy_to_ev = model.ev.energy_to[i] if hasattr(model.ev, 'energy_to') else 0
+            energy_from_ev = model.ev.energy_from[i] if hasattr(model.ev, 'energy_from') else 0
+            energy_to_grid = model.grid.energy_to[i] if hasattr(model.grid, 'energy_to') else 0
+            energy_from_grid = model.grid.energy_from[i] if hasattr(model.grid, 'energy_from') else 0
+            energy_to_pv = model.pv.energy_to[i] if hasattr(model.pv, 'energy_to') else 0
+            energy_from_pv = model.pv.energy_from[i] if hasattr(model.pv, 'energy_from') else 0
+            energy_to_bat = model.bat.energy_to[i] if hasattr(model.bat, 'energy_to') else 0
+            energy_from_bat = model.bat.energy_from[i] if hasattr(model.bat, 'energy_from') else 0
 
-            return energy_to_grid + load + energy_to_ev == energy_from_grid + energy_from_pv
+            return load == energy_from_grid + energy_from_pv + energy_from_ev - energy_to_grid - energy_to_pv - energy_to_ev + energy_from_bat - energy_to_bat
 
         self.balance_const = pyo.Constraint(self.t, rule=balance_rule)
-
