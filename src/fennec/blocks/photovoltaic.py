@@ -10,26 +10,23 @@ class PhotovoltaicBlock(pyo.ScalarBlock):
 
     def __init__(
             self,
-            timestamps: List[float],
-            pv_power: List[float],
+            name: str,
+            pv_energy: List[float],
             *args, **kwargs
     ):
         """
         Constructor
         :param timestamps:
         :param delta_timestamps:
-        :param pv_power:
+        :param pv_energy:
         :param args:
         :param kwargs:
         """
         super().__init__(*args, **kwargs)
 
         # Constants
-        n_index = len(timestamps)
-        t_index = [i for i in range(n_index)]
-        delta_timestamps = [timestamps[i + 1] - timestamps[i] for i in range(n_index - 1)] + [
-            timestamps[-1] - timestamps[-2]
-        ]
+        t_index = [i for i in range(len(pv_energy))]
+        self.name = name
 
         ###################### INDEX #############################
         self.t = pyo.Set(initialize=t_index)
@@ -38,7 +35,10 @@ class PhotovoltaicBlock(pyo.ScalarBlock):
         #################### PARAMETERS ##########################
 
         # Energy from the photovoltaic panels in kWh
-        self.energy_from = pyo.Param(self.t, initialize={i: max(0, pv_power_i * delta_timestamps_i / 3600) for i, (pv_power_i, delta_timestamps_i) in enumerate(zip(pv_power, delta_timestamps))})
+        self.energy_from = pyo.Param(self.t, initialize={i: pv_energy_i for i, pv_energy_i in enumerate(pv_energy)})
+
+        # Energy to the photovoltaic panels in kWh (ONLY FOR SYMMETRY WITH THE BATTERY BLOCK)
+        self.energy_to = pyo.Param(self.t, initialize={i: 0 for i in t_index})
 
         #################### OBJECTIVE ###########################
 

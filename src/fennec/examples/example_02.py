@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 import pyomo.environ as pyo
 from fennec import blocks, models, tariffs
-from fennec.utils import calculate_house_load_power, calculate_pv_power
+from fennec.utils import calculate_house_load_power, calculate_pv_power, convert_power_to_energy
 
 
 if __name__ == "__main__":
@@ -31,8 +31,8 @@ if __name__ == "__main__":
     ev_plugged = [1.0,] * len(utc_timestamps)
     ev_threshold_soc = None
     ev_threshold_index = None
-    ev_initial_soc = 0.2
-    ev_final_soc = 0.25
+    ev_soc_0 = 20
+    ev_soc_specifications = [(len(utc_timestamps) - 1, 50)]
     ev_charging_power = 2.0
     ev_is_power_variable = False
     ev_charging_efficiency = 0.95
@@ -40,10 +40,8 @@ if __name__ == "__main__":
     bat_charging_power = 4.0
     bat_discharging_power = 4.0
     bat_capacity = 6
-    bat_initial_soc = 0.2
-    bat_final_soc = 0.3
-    bat_threshold_soc = None
-    bat_threshold_index = None
+    bat_soc_0 = 20
+    bat_soc_specifications = [(len(utc_timestamps) - 1, 50)]
     bat_charging_efficiency = 0.95
     bat_discharging_efficiency = 0.95
     bat_command_penalty = [0.001,] * len(utc_timestamps)
@@ -56,6 +54,7 @@ if __name__ == "__main__":
         )
         for utc_timestamp in utc_timestamps
     ]
+    load_energy = convert_power_to_energy(load_power, utc_timestamps)
 
     pv_power = [
         calculate_pv_power(
@@ -69,54 +68,57 @@ if __name__ == "__main__":
         )
         for utc_timestamp in utc_timestamps
     ]
+    pv_energy = convert_power_to_energy(pv_power, utc_timestamps)
 
+    grid_energy_limit = convert_power_to_energy([grid_contracted_power,] * len(utc_timestamps), utc_timestamps)
+    grid = blocks.GridBlock(
+        name='Grid',
+        energy_limit=grid_energy_limit,
+        tariff_energy_to=tariff_energy_to,
+        tariff_energy_from=tariff_energy_from,
+        is_settled=grid_is_settled,
+    )
+
+    pv = blocks.PhotovoltaicBlock(
+        name='Photovoltaic',
+        pv_energy=pv_energy  # timestamps in seconds
+    )
+
+    bat_charging_energy_limit = convert_power_to_energy([bat_charging_power,] * len(utc_timestamps), utc_timestamps)
+    bat_discharging_energy_limit = convert_power_to_energy([bat_discharging_power,] * len(utc_timestamps), utc_timestamps)
+    bat = blocks.FixedBatteryBlock(
+        name='Battery',
+        charging_energy_limit=bat_charging_energy_limit,
+        discharging_energy_limit=bat_discharging_energy_limit,
+        capacity=bat_capacity,
+        soc_0=bat_soc_0,
+        soc_specifications=bat_soc_specifications,
+        charging_efficiency=bat_charging_efficiency,
+        discharging_efficiency=bat_discharging_efficiency,
+        command_penalty=bat_command_penalty,
+        load_energy=load_energy,
+        pv_energy=pv_energy,
+    )
+
+    ev_charging_energy_limit = convert_power_to_energy([ev_charging_power, ] * len(utc_timestamps), utc_timestamps)
     ev = blocks.VehicleBatteryBlock(
-        timestamps=utc_timestamps,
+        name='EV',
         is_available=[True,] * len(utc_timestamps),
-        charging_power=ev_charging_power,
+        charging_energy_limit=ev_charging_energy_limit,
         capacity=ev_battery_capacity,
-        initial_soc=ev_initial_soc,
-        final_soc=ev_final_soc,
-        threshold_soc=ev_threshold_soc,
-        threshold_index=ev_threshold_index,
+        soc_0=ev_soc_0,
+        soc_specifications=ev_soc_specifications,
         charging_efficiency=ev_charging_efficiency,
         command_penalty=ev_command_penalty,
     )
 
-    grid = blocks.GridBlock(
-        timestamps=utc_timestamps,
-        tariff_energy_to=tariff_energy_to,
-        tariff_energy_from=tariff_energy_from,
-        is_settled=grid_is_settled,
-        contracted_power=grid_contracted_power,
-    )
-
-    pv = blocks.PhotovoltaicBlock(
-        timestamps=utc_timestamps,
-        pv_power=pv_power  # timestamps in seconds
-    )
-
-    bat = blocks.FixedBatteryBlock(
-        timestamps=utc_timestamps,
-        charging_power=bat_charging_power,
-        discharging_power=bat_discharging_power,
-        capacity=bat_capacity,
-        initial_soc=bat_initial_soc,
-        final_soc=bat_final_soc,
-        threshold_soc=bat_threshold_soc,
-        threshold_index=bat_threshold_index,
-        charging_efficiency=bat_charging_efficiency,
-        discharging_efficiency=bat_discharging_efficiency,
-        command_penalty=bat_command_penalty,
-    )
-
-    model = models.House(
-        timestamps=utc_timestamps,
-        load_power=load_power,
+    model = models.SmartHome(
+        name='House',
+        load_energy=load_power,
         grid=grid,
         pv=pv,
-        ev=ev,
-        bat=bat
+        ev=[ev,],
+        bat=[bat,]
     )
 
     solver = pyo.SolverFactory("appsi_highs")

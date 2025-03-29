@@ -7,22 +7,19 @@ class GridBlock(pyo.ScalarBlock):
 
     def __init__(
         self,
-        timestamps: List[float],
+        name: str,
+        energy_limit: List[float],
         tariff_energy_to: List[float],
         tariff_energy_from: List[float],
         is_settled: bool = True,
-        contracted_power: float = 6.75,
         *args,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
 
         # Constants
-        n_index = len(timestamps)
-        t_index = [i for i in range(n_index)]
-        delta_timestamps = [timestamps[i + 1] - timestamps[i] for i in range(n_index - 1)] + [
-            timestamps[-1] - timestamps[-2]
-        ]
+        t_index = [i for i in range(len(energy_limit))]
+        self.name = name
 
         ###################### INDEX #############################
 
@@ -44,7 +41,7 @@ class GridBlock(pyo.ScalarBlock):
         self.energy_limit = pyo.Param(
             self.t,
             initialize={
-                i: contracted_power * delta_timestamp_i / 3600 for i, delta_timestamp_i in enumerate(delta_timestamps)
+                i: energy_limit_i for i, energy_limit_i in enumerate(energy_limit)
             },
         )
 

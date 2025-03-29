@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from .battery import BatteryBlock
 
 
@@ -6,14 +6,12 @@ class VehicleBatteryBlock(BatteryBlock):
 
     def __init__(
         self,
-        timestamps: List[float],
+        name: str,
         is_available: List[bool],
-        charging_power: float,
+        charging_energy_limit: List[float],
         capacity: float,
-        initial_soc: Optional[float],
-        final_soc: Optional[float],
-        threshold_soc: Optional[float],
-        threshold_index: Optional[int],
+        soc_0: Optional[float],
+        soc_specifications: Optional[List[Tuple[int, float, ]]],
         charging_efficiency: float,
         command_penalty: List[float],  # in $ per command
         *args,
@@ -21,14 +19,12 @@ class VehicleBatteryBlock(BatteryBlock):
     ):
 
         super().__init__(
-            timestamps=timestamps,
-            charging_power=charging_power,
-            discharging_power=0.0,
+            name=name,
+            charging_energy_limit=charging_energy_limit,
+            discharging_energy_limit=[0.0,] * len(charging_energy_limit),
             capacity=capacity,
-            initial_soc=initial_soc,
-            final_soc=final_soc,
-            threshold_soc=threshold_soc,
-            threshold_index=threshold_index,
+            soc_0=soc_0,
+            soc_specifications=soc_specifications,
             is_available=is_available,
             has_variable_charge_power=False,
             has_self_consumption_mode=False,

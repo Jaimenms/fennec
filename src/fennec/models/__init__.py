@@ -1,4 +1,3 @@
-from .house import House
-from .vehicle import Vehicle
+from .smart_home import SmartHome
 
-__all__ = ["House", "Vehicle"]
+__all__ = ["SmartHome"]

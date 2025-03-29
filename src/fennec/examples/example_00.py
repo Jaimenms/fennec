@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 import pyomo.environ as pyo
 from fennec import blocks, models, tariffs
-from fennec.utils import calculate_house_load_power, calculate_pv_power
+from fennec.utils import calculate_house_load_power, calculate_pv_power, convert_power_to_energy
 
 
 if __name__ == "__main__":
@@ -36,6 +36,7 @@ if __name__ == "__main__":
         )
         for utc_timestamp in utc_timestamps
     ]
+    load_energy = convert_power_to_energy(load_power, utc_timestamps)
 
     pv_power = [
         calculate_pv_power(
@@ -49,25 +50,27 @@ if __name__ == "__main__":
         )
         for utc_timestamp in utc_timestamps
     ]
+    pv_energy = convert_power_to_energy(pv_power, utc_timestamps)
+
+    energy_limit = convert_power_to_energy([grid_contracted_power] * len(utc_timestamps), utc_timestamps)
 
     grid = blocks.GridBlock(
-        timestamps=utc_timestamps,
+        name="Grid",
+        energy_limit=energy_limit,
         tariff_energy_to=tariff_energy_to,
         tariff_energy_from=tariff_energy_from,
         is_settled=grid_is_settled,
-        contracted_power=grid_contracted_power,
     )
 
     pv = blocks.PhotovoltaicBlock(
-        timestamps=utc_timestamps,
-        pv_power=pv_power  # timestamps in seconds
+        name="Photovoltaic",
+        pv_energy=pv_energy  # timestamps in seconds
     )
-    model = models.House(
+    model = models.SmartHome(
         name="House",
-        timestamps=utc_timestamps,
-        load_power=load_power,
+        load_energy=load_energy,
         grid=grid,
-        pv=pv
+        pv=pv,
     )
 
     solver = pyo.SolverFactory("appsi_highs")

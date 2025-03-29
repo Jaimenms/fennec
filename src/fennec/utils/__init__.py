@@ -4,7 +4,23 @@ from pysolar.solar import get_altitude, get_azimuth
 from pysolar.radiation import get_radiation_direct
 
 
-@staticmethod
+def convert_power_to_energy(power, timestamps):
+    """
+    Convert a list of power values (in kW) and timestamps (in seconds) to energy values (in kWh).
+    :param power:
+    :param timestamps:
+    :return:
+    """
+
+    n = len(timestamps)
+
+    delta_timestamps = [timestamps[i + 1] - timestamps[i] for i in range(n - 1)] + [
+        timestamps[-1] - timestamps[-2]
+    ]
+
+    return [load_power_i * delta_timestamp_i / 3600 for delta_timestamp_i, load_power_i in zip(delta_timestamps, power)]
+
+
 def calculate_house_load_power(utc_timestamp, area, num_residents, longitude):
     """
     Estimate the instantaneous electrical load (in kW) for a typical European household.

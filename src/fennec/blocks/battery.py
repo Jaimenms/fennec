@@ -2,43 +2,31 @@ from typing import List, Optional, Tuple
 import pyomo.environ as pyo
 from pyomo.environ import Binary, PositiveReals
 
-from .photovoltaic import PhotovoltaicBlock
-from .grid import GridBlock
-
 
 class BatteryBlock(pyo.ScalarBlock):
 
     def __init__(
         self,
-        timestamps: List[float],
-        charging_power: float,
-        discharging_power: float,
+        charging_energy_limit: List[float],
+        discharging_energy_limit: List[float],
         capacity: float,
         soc_0: Optional[float],
         soc_specifications: Optional[List[Tuple[int, float, ]]],
-        # initial_soc: Optional[float],
-        # final_soc: Optional[float],
-        # threshold_soc: Optional[float],
-        # threshold_index: Optional[int],
         is_available: List[bool],
         has_variable_charge_power: bool,
         has_self_consumption_mode: bool,
         charging_efficiency: float,
         discharging_efficiency: float,
         command_penalty: List[float],
-        load_power: List[float] = None,
-        pv_power: List[float] = None,
+        load_energy: List[float] = None,
+        pv_energy: List[float] = None,
         *args,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
 
         # Constants
-        n_index = len(timestamps)
-        t_index = [i for i in range(n_index)]
-        delta_timestamps = [timestamps[i + 1] - timestamps[i] for i in range(n_index - 1)] + [
-            timestamps[-1] - timestamps[-2]
-        ]
+        t_index = [i for i in range(len(charging_energy_limit))]
 
         ###################### INDEX #############################
         self.t = pyo.Set(initialize=t_index)
@@ -75,18 +63,15 @@ class BatteryBlock(pyo.ScalarBlock):
 
         # Energy limits for charging in kWh
         self.energy_to_limit = pyo.Param(self.t, initialize={
-            i: charging_efficiency * charging_power * delta_timestamp_i / 3600
-            for i, delta_timestamp_i in enumerate(delta_timestamps)
+            i: charging_efficiency * charging_energy_limit_i
+            for i, charging_energy_limit_i in enumerate(charging_energy_limit)
         })
 
         # Energy limits for discharging in kWh
         self.energy_from_limit = pyo.Param(self.t, initialize={
-            i: (1/discharging_efficiency) * discharging_power * delta_timestamp_i / 3600
-            for i, delta_timestamp_i in enumerate(delta_timestamps)
+            i: (1/discharging_efficiency) * discharging_energy_limit_i
+            for i, discharging_energy_limit_i in enumerate(discharging_energy_limit)
         })
-
-        # Command penalty
-        self.command_penalty = pyo.Param(self.t, initialize={i: p * (i+1) / len(t_index) for i, p in enumerate(command_penalty)})
 
         #################### CONSTRAINTS ###########################
 
@@ -144,13 +129,13 @@ class BatteryBlock(pyo.ScalarBlock):
         # Solar surplus and deficit conditions for self consumption mode
         if has_self_consumption_mode:
 
-            big_m = max(max(load_power), max(pv_power))
+            big_m = max(max(load_energy), max(pv_energy))
 
             # Solar Surplus condition in self-consumption mode will force battery charge
             self.solar_surplus = pyo.Param(self.t, initialize={
-                i: max(0, pv_power_i - load_power_i) * delta_timestamp_i / 3600
-                for i, (delta_timestamp_i, load_power_i, pv_power_i) in
-                enumerate(zip(delta_timestamps, load_power, pv_power))
+                i: max(0, pv_energy_i - load_energy_i)
+                for i, (load_energy_i, pv_energy_i) in
+                enumerate(zip(load_energy, pv_energy))
             })
             self.solar_surplus_const_1 = pyo.Constraint(
                 self.t,
@@ -163,9 +148,9 @@ class BatteryBlock(pyo.ScalarBlock):
 
             # Solar Deficit condition in self-consumption mode will force battery discharge
             self.solar_deficit = pyo.Param(self.t, initialize={
-                i: max(0, load_power_i - pv_power_i) * delta_timestamp_i / 3600
-                for i, (delta_timestamp_i, load_power_i, pv_power_i) in
-                enumerate(zip(delta_timestamps, load_power, pv_power))
+                i: max(0, load_energy_i - pv_energy_i)
+                for i, (load_energy_i, pv_energy_i) in
+                enumerate(zip(load_energy, pv_energy))
             })
             self.solar_deficit_const_1 = pyo.Constraint(
                 self.t,
@@ -225,7 +210,8 @@ class BatteryBlock(pyo.ScalarBlock):
         # Objective function
         self.fob_const = pyo.Constraint(
             self.t,
-            rule=lambda model, i: model.fob[i] == self.command_penalty[i] * (model.diff_m[i] + model.diff_x[i] + model.diff_z[i]),
+            rule=lambda model, i: model.fob[i] == command_penalty[i] * (i+1) * (
+                        model.diff_m[i] + model.diff_x[i] + model.diff_z[i]),
         )
 
 
