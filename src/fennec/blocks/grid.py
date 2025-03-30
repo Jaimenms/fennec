@@ -3,78 +3,110 @@ import pyomo.environ as pyo
 from pyomo.environ import Binary, PositiveReals
 
 
-class GridBlock(pyo.ScalarBlock):
+class UnsettledGridBlock(pyo.ScalarBlock):
 
-    def __init__(
-        self,
-        name: str,
-        energy_limit: List[float],
-        tariff_energy_to: List[float],
-        tariff_energy_from: List[float],
-        is_settled: bool = True,
-        *args,
-        **kwargs,
-    ):
-        super().__init__(*args, **kwargs)
+    def __init__(self, *args, **kwargs):
+        super().__init__(rule=self.rule, *args, **kwargs)
 
-        # Constants
-        t_index = [i for i in range(len(energy_limit))]
-        self.name = name
+    @staticmethod
+    def rule(m: pyo.Model):
 
         ###################### INDEX #############################
 
-        self.t = pyo.Set(initialize=t_index)
-        self.t_shifted = pyo.Set(initialize=t_index[1:])
-
-        #################### VARIABLES ###########################
-
-        # Energy to grid in kWh
-        self.energy_to = pyo.Var(self.t, domain=PositiveReals)
-
-        # Energy from grid in kWh
-        self.energy_from = pyo.Var(self.t, domain=PositiveReals)
-
+        m.t = m.parent_block().t
 
         #################### PARAMETERS ##########################
 
         # Energy limit based on contracted power in kWh
-        self.energy_limit = pyo.Param(
-            self.t,
-            initialize={
-                i: energy_limit_i for i, energy_limit_i in enumerate(energy_limit)
-            },
-        )
+        m.energy_limit = pyo.Param(m.t)
 
         # Energy from grid tariff
-        self.tariff_energy_from = pyo.Param(self.t, initialize={i: value for i, value in enumerate(tariff_energy_from)})
+        m.tariff_energy_from = pyo.Param(m.t)
 
         # Energy to grid tariff
-        self.tariff_energy_to = pyo.Param(self.t, initialize={i: value for i, value in enumerate(tariff_energy_to)})
+        m.tariff_energy_to = pyo.Param(m.t)
+
+        #################### VARIABLES ###########################
+
+        # Energy to grid in kWh
+        m.energy_to = pyo.Var(m.t, domain=PositiveReals)
+
+        # Energy from grid in kWh
+        m.energy_from = pyo.Var(m.t, domain=PositiveReals)
+
+        #################### CONSTRAINTS ##########################
+
+        # Energy limit constraints to grid
+        m.energy_to_const = pyo.Constraint(m.t, rule=lambda model, i: model.energy_to[i] <= model.energy_limit[i])
+
+        # Energy limit constraints from grid
+        m.energy_from_const = pyo.Constraint(m.t, rule=lambda model, i: model.energy_from[i] <= model.energy_limit[i])
+
+        #################### OBJECTIVE ###########################
+
+        m.fob = pyo.Var(m.t)
+        m.fob_const = pyo.Constraint(m.t, rule=lambda model, i: model.fob[i] == model.energy_from[i] * model.tariff_energy_from[i] - model.energy_to[i] * model.tariff_energy_to[i])
+
+
+
+class SettledGridBlock(pyo.ScalarBlock):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(rule=self.rule, *args, **kwargs )
+
+    @staticmethod
+    def rule(m: pyo.Block):
+
+        ###################### INDEX #############################
+        t = m.parent_block().t
+
+        #################### PARAMETERS ##########################
+
+        # Energy limit based on contracted power in kWh
+        m.energy_limit = pyo.Param(t)
+
+        # Energy from grid tariff
+        m.tariff_energy_from = pyo.Param(t, initialize=0.0, mutable=True)
+
+        # Energy to grid tariff
+        m.tariff_energy_to = pyo.Param(t, initialize=0.0, mutable=True)
+
+        #################### VARIABLES ###########################
+
+        # Energy to grid in kWh
+        m.energy_to = pyo.Var(t, domain=PositiveReals)
+
+        # Energy from grid in kWh
+        m.energy_from = pyo.Var(t, domain=PositiveReals)
 
         #################### CONSTRAINTS ##########################
 
         # Settling constraints
-        if is_settled:
-            self.settling = pyo.Var(self.t, domain=Binary)
-            self.settlement_const_1 = pyo.Constraint(self.t,
-                                                     rule=lambda model, i: model.energy_from[i] <= model.energy_limit[
-                                                         i] * model.settling[i])
-            self.settlement_const_2 = pyo.Constraint(self.t,
-                                                     rule=lambda model, i: model.energy_to[i] <= model.energy_limit[
-                                                         i] * (1.0 - model.settling[i]))
+        m.settling = pyo.Var(t, domain=Binary)
+        m.settlement_const_1 = pyo.Constraint(t,
+                                                 rule=lambda model, i: model.energy_from[i] <= model.energy_limit[
+                                                     i] * model.settling[i])
+        m.settlement_const_2 = pyo.Constraint(t,
+                                                 rule=lambda model, i: model.energy_to[i] <= model.energy_limit[
+                                                     i] * (1.0 - model.settling[i]))
 
         # Energy limit constraints to grid
-        self.energy_to_const = pyo.Constraint(
-            self.t, rule=lambda model, i: model.energy_to[i] <= model.energy_limit[i]
-        )
+        m.energy_to_const = pyo.Constraint(t, rule=lambda model, i: model.energy_to[i] <= model.energy_limit[i])
 
         # Energy limit constraints from grid
-        self.energy_from_const = pyo.Constraint(
-            self.t,
-            rule=lambda model, i: model.energy_from[i] <= model.energy_limit[i]
-        )
+        m.energy_from_const = pyo.Constraint(t, rule=lambda model, i: model.energy_from[i] <= model.energy_limit[i])
 
         #################### OBJECTIVE ###########################
 
-        self.fob = pyo.Var(self.t)
-        self.fob_const = pyo.Constraint(self.t, rule=lambda model, i: model.fob[i] == model.energy_from[i] * model.tariff_energy_from[i] - model.energy_to[i] * model.tariff_energy_to[i])
+        m.fob = pyo.Var(t)
+        m.fob_const = pyo.Constraint(t, rule=lambda model, i: model.fob[i] == model.energy_from[i] * model.tariff_energy_from[i] - model.energy_to[i] * model.tariff_energy_to[i])
+
+
+class GridBlock(pyo.ScalarBlock):
+
+    def __init__(self, is_settled=True, *args, **kwargs):
+        if is_settled:
+            self.rule = SettledGridBlock.rule
+        else:
+            self.rule = UnsettledGridBlock.rule
+        super().__init__(rule=self.rule, *args, **kwargs)

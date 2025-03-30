@@ -1,7 +1,10 @@
+# import logging
+# logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
 from datetime import datetime, timezone
 
 import pyomo.environ as pyo
-from fennec import blocks, models, tariffs
+from fennec import models, tariffs
 from fennec.utils import calculate_house_load_power, calculate_pv_power, convert_power_to_energy
 
 
@@ -31,7 +34,7 @@ if __name__ == "__main__":
     bat_discharging_power = 4.0
     bat_capacity = 6
     bat_soc_0 = 50
-    bat_soc_specifications = [(len(utc_timestamps) - 1, 50)]
+    bat_soc_specifications = [0.0] * len(utc_timestamps)
     bat_charging_efficiency = 0.95
     bat_discharging_efficiency = 0.95
     bat_command_penalty = [0.1,] * len(utc_timestamps)
@@ -61,58 +64,68 @@ if __name__ == "__main__":
     pv_energy = convert_power_to_energy(pv_power, utc_timestamps)
 
     grid_energy_limit = convert_power_to_energy([grid_contracted_power,] * len(utc_timestamps), utc_timestamps)
-    grid = blocks.GridBlock(
-        name="Grid",
-        energy_limit=grid_energy_limit,
-        tariff_energy_to=tariff_energy_to,
-        tariff_energy_from=tariff_energy_from,
-        is_settled=grid_is_settled,
-    )
-
-    pv = blocks.PhotovoltaicBlock(
-        name="Photovoltaic",
-        pv_energy=pv_energy  # timestamps in seconds
-    )
-
     bat_charging_energy_limit = convert_power_to_energy([bat_charging_power,] * len(utc_timestamps), utc_timestamps)
     bat_discharging_energy_limit = convert_power_to_energy([bat_discharging_power,] * len(utc_timestamps), utc_timestamps)
-    bat = blocks.FixedBatteryBlock(
-        name="Battery",
-        charging_energy_limit=bat_charging_energy_limit,
-        discharging_energy_limit=bat_discharging_energy_limit,
-        capacity=bat_capacity,
-        soc_0=bat_soc_0,
-        soc_specifications=bat_soc_specifications,
-        charging_efficiency=bat_charging_efficiency,
-        discharging_efficiency=bat_discharging_efficiency,
-        command_penalty=bat_command_penalty,
-        load_energy=load_energy,
-        pv_energy=pv_energy
-    )
 
-    model = models.SmartHome(
-        name="House",
-        load_energy=load_energy,
-        grid=grid,
-        pv=pv,
-        bat=[bat,]
-    )
+    # Solar Surplus condition in self-consumption mode will force battery charge
+    solar_surplus = [max(0, pv_energy_i - load_energy_i) for load_energy_i, pv_energy_i in zip(load_energy, pv_energy)]
+    solar_deficit = [max(0, load_energy_i - pv_energy_i) for load_energy_i, pv_energy_i in zip(load_energy, pv_energy)]
 
-    model.display()
+
+    model = models.SmartHome(is_grid_settled=True)
+
+    data = {
+        None: {  # The key None tells Pyomo that these data items are for the top-level model.
+            't': {None: [i for i, _ in enumerate(utc_timestamps)]},
+            'node_index': {None: ['PV', 'LOAD']},
+            'intelligent_bat_index': {None: ['BAT']},
+            'grid': {
+                'energy_limit': {i: v for i, v in enumerate(grid_energy_limit)},
+                'tariff_energy_from': {i: v for i, v in enumerate(tariff_energy_from)},
+                'tariff_energy_to': {i: v for i, v in enumerate(tariff_energy_to)},
+            },
+            'node': {
+                'PV': {
+                    'energy_from': {i: v for i, v in enumerate(pv_energy)},
+                },
+                'LOAD': {
+                    'energy_to': {i: v for i, v in enumerate(load_energy)},
+                },
+            },
+            'intelligent_bat': {
+                'BAT': {
+                    'energy_to_limit': {i: v for i, v in enumerate(bat_charging_energy_limit)},
+                    'energy_from_limit': {i: v for i, v in enumerate(bat_discharging_energy_limit)},
+                    'capacity': {None: bat_capacity},
+                    'soc_0': {None: bat_soc_0},
+                    'soc_specifications': {i: v for i, v in enumerate(bat_soc_specifications)},
+                    'charging_efficiency': {None: bat_charging_efficiency},
+                    'discharging_efficiency': {None: bat_discharging_efficiency},
+                    'command_penalty': {i: v for i, v in enumerate(bat_command_penalty)},
+                    'solar_surplus': {i: v for i, v in enumerate(solar_surplus)},
+                    'solar_deficit': {i: v for i, v in enumerate(solar_deficit)},
+                }
+            }
+        }
+    }
+
+    instance = model.create_instance(data)
 
     solver = pyo.SolverFactory("appsi_highs")
     solver.options["mip_abs_gap"] = 0.0001
     solver.options["mip_rel_gap"] = 0.001
     solver.options["time_limit"] = 20
-    # solver.options["log_file"] = 'output.log'
 
-    print(print(solver.available()))
-    results = solver.solve(model, tee=False)
+    if not solver.available():
+        print("Solver not available")
+        exit(1)
+
+    results = solver.solve(instance, tee=False)
 
     # 6) Display results
     print("Solver Status:", results.solver.status)
     print("Termination Condition:", results.solver.termination_condition)
-    print(f"Objective Value = {model.obj():.2f}")
+    print(f"Objective Value = {instance.obj():.2f}")
 
     def _v(x, i):
         try:
@@ -121,5 +134,5 @@ if __name__ == "__main__":
             return "  N/A"
 
     # Output:
-    for ti in model.t:
-        print(f"t={ti:3.0f}, fob:grid/pv/bat={_v(model.grid.fob, ti)}/{_v(model.pv.fob, ti)}/{_v(model.bat[0].fob, ti)},  m/u/v/x/z={_v(model.bat[0].m, ti)}/{_v(model.bat[0].u, ti)}/{_v(model.bat[0].v, ti)}/{_v(model.bat[0].x, ti)}/{_v(model.bat[0].z, ti)}, soc={_v(model.bat[0].soc, ti)}, load={_v(model.load_energy, ti)}, grid_to={_v(model.grid.energy_to, ti)}, bat_to={_v(model.bat[0].energy_to, ti)}, grid_from={_v(model.grid.energy_from, ti)}, pv_from={_v(model.pv.energy_from, ti)}, bat_from={_v(model.bat[0].energy_from, ti)}")
+    for ti in instance.t:
+        print(f"t={ti:3.0f}, fob:grid/pv/bat={_v(instance.grid.fob, ti)}/{_v(instance.node['PV'].fob, ti)}/{_v(instance.intelligent_bat['BAT'].fob, ti)},  m/u/v/x/z={_v(instance.intelligent_bat['BAT'].m, ti)}/{_v(instance.intelligent_bat['BAT'].u, ti)}/{_v(instance.intelligent_bat['BAT'].v, ti)}/{_v(instance.intelligent_bat['BAT'].x, ti)}/{_v(instance.intelligent_bat['BAT'].z, ti)}, soc={_v(instance.intelligent_bat['BAT'].soc, ti)}, load={_v(instance.node['LOAD'].energy_from, ti)}, grid_to={_v(instance.grid.energy_to, ti)}, bat_to={_v(instance.intelligent_bat['BAT'].energy_to, ti)}, pv_from={_v(instance.node['PV'].energy_from, ti)}, bat_from={_v(instance.intelligent_bat['BAT'].energy_from, ti)}")

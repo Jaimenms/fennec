@@ -115,10 +115,10 @@ if __name__ == "__main__":
     model = models.SmartHome(
         name='House',
         load_energy=load_power,
-        grid=grid,
-        pv=pv,
-        ev=[ev,],
-        bat=[bat,]
+        grid_block=grid,
+        pv_block=pv,
+        ev_blocks=[ev, ],
+        bat_blocks=[bat, ]
     )
 
     solver = pyo.SolverFactory("appsi_highs")

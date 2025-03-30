@@ -1,91 +1,67 @@
-from typing import Optional, List
-
 import pyomo.environ as pyo
-from ..blocks import GridBlock, PhotovoltaicBlock, FixedBatteryBlock, VehicleBatteryBlock
+from ..blocks import GridBlock, NodeBlock, IntelligentBatteryBlock, SimpleBatteryBlock
 
 
-class SmartHome(pyo.ConcreteModel):
+class SmartHome(pyo.AbstractModel):
 
     def __init__(
-        self,
-        name: str,
-        load_energy: List[float],
-        grid: GridBlock = pyo.Block(),
-        pv: Optional[PhotovoltaicBlock] = None,
-        ev: Optional[List[VehicleBatteryBlock]] = None,
-        bat: Optional[List[FixedBatteryBlock]] = None,
-        *args,
-        **kwargs
-    ):
+            self,
+            is_grid_settled=True,
+            *args, **kwargs):
 
-        super().__init__(*args, **kwargs)
-
-        # Constants
-        t_index = [i for i in range(len(load_energy))]
+        super(SmartHome, self).__init__(*args, **kwargs)
 
         ###################### INDEX #############################
-        self.t = pyo.Set(initialize=t_index)
-        self.t_shifted = pyo.Set(initialize=t_index[1:])
-        self.name = name
+        self.t = pyo.Set()
+
+        self.node_index = pyo.Set()
+        self.intelligent_bat_index = pyo.Set()
+        self.simple_bat_index = pyo.Set()
 
         #################### BLOCKS ###############################
-        self.grid = grid
+        self.grid = GridBlock(is_settled=is_grid_settled)
+        self.node = NodeBlock(self.node_index)
+        self.intelligent_bat = IntelligentBatteryBlock(self.intelligent_bat_index)
+        self.simple_bat = SimpleBatteryBlock(self.simple_bat_index)
 
-        self.pv = pv
-
-        ev = ev if ev is not None else []
-        self.ev_index = pyo.RangeSet(0, len(ev) - 1)
-        self.ev = pyo.Block(self.ev_index)
-        for i, ev_elem in enumerate(ev):
-            self.ev[i].transfer_attributes_from(ev_elem.clone())
-
-        bat = bat if bat is not None else []
-        self.bat_index = pyo.RangeSet(0, len(bat) - 1)
-        self.bat = pyo.Block(self.bat_index)
-        for i, bat_elem in enumerate(bat):
-            self.bat[i].transfer_attributes_from(bat_elem.clone())
-
-        #################### PARAMETERS ###########################
-        self.load_energy = pyo.Param(
-            self.t,
-            initialize={
-                i: load_energy_i
-                for i, load_energy_i in enumerate(load_energy)
-            },
-        )
-
-        #################### CONSTRAINTS ###########################
+        #################### CONSTRAINTS ##########################
         def balance_rule(model: pyo.Model, i):
-            load = model.load_energy[i]
 
             energy_to = model.grid.energy_to[i]
             energy_from = model.grid.energy_from[i]
 
-            if model.pv is not None:
-                energy_to += model.pv.energy_to[i]
-                energy_from += model.pv.energy_from[i]
+            for j in model.node_index:
+                energy_to += model.node[j].energy_to[i]
+                energy_from += model.node[j].energy_from[i]
 
-            for j in model.ev_index:
-                energy_to += model.ev[j].energy_to[i]
-                energy_from += model.ev[j].energy_from[i]
+            for j in model.simple_bat_index:
+                energy_to += model.simple_bat[j].energy_to[i]
+                energy_from += model.simple_bat[j].energy_from[i]
 
-            for j in model.bat_index:
-                energy_to += model.bat[j].energy_to[i]
-                energy_from += model.bat[j].energy_from[i]
+            for j in model.intelligent_bat_index:
+                energy_to += model.intelligent_bat[j].energy_to[i]
+                energy_from += model.intelligent_bat[j].energy_from[i]
 
-            return load == energy_from - energy_to
+            return energy_from == energy_to
 
         self.balance_const = pyo.Constraint(self.t, rule=balance_rule)
 
         #################### OBJECTIVE ###########################
         def objective_rule(model: pyo.Model):
-            fob = pyo.summation(model.grid.fob) + pyo.summation(model.pv.fob)
 
-            for j in model.ev_index:
-                fob += pyo.summation(model.ev[j].fob)
+            fob = 0.0
 
-            for j in model.bat_index:
-                fob += pyo.summation(model.bat[j].fob)
+            for j in model.simple_bat_index:
+                for i in model.t:
+                    fob += model.simple_bat[j].fob[i]
+
+            for j in model.intelligent_bat_index:
+                for i in model.t:
+                    fob += model.intelligent_bat[j].fob[i]
+
+            for j in model.node_index:
+                for i in model.t:
+                    fob += model.node[j].fob[i]
 
             return fob
 
