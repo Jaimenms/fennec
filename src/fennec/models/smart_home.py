@@ -1,5 +1,5 @@
 import pyomo.environ as pyo
-from ..blocks import GridBlock, NodeBlock, IntelligentBatteryBlock, SimpleBatteryBlock
+from ..blocks import GridBlock, NodeBlock, Storage, StorageController
 
 
 class SmartHome(pyo.AbstractModel):
@@ -14,15 +14,15 @@ class SmartHome(pyo.AbstractModel):
         ###################### INDEX #############################
         self.t = pyo.Set()
 
-        self.node_index = pyo.Set()
-        self.intelligent_bat_index = pyo.Set()
-        self.simple_bat_index = pyo.Set()
+        self.nodeIndex = pyo.Set()
+        self.storageIndex = pyo.Set()
+        self.storageControllerIndex = pyo.Set()
 
         #################### BLOCKS ###############################
         self.grid = GridBlock(is_settled=is_grid_settled)
-        self.node = NodeBlock(self.node_index)
-        self.intelligent_bat = IntelligentBatteryBlock(self.intelligent_bat_index)
-        self.simple_bat = SimpleBatteryBlock(self.simple_bat_index)
+        self.node = NodeBlock(self.nodeIndex)
+        self.storage = Storage(self.storageIndex)
+        self.storageController = StorageController(self.storageControllerIndex)
 
         #################### CONSTRAINTS ##########################
         def balance_rule(model: pyo.Model, i):
@@ -30,17 +30,13 @@ class SmartHome(pyo.AbstractModel):
             energy_to = model.grid.energy_to[i]
             energy_from = model.grid.energy_from[i]
 
-            for j in model.node_index:
+            for j in model.nodeIndex:
                 energy_to += model.node[j].energy_to[i]
                 energy_from += model.node[j].energy_from[i]
 
-            for j in model.simple_bat_index:
-                energy_to += model.simple_bat[j].energy_to[i]
-                energy_from += model.simple_bat[j].energy_from[i]
-
-            for j in model.intelligent_bat_index:
-                energy_to += model.intelligent_bat[j].energy_to[i]
-                energy_from += model.intelligent_bat[j].energy_from[i]
+            for j in model.storageIndex:
+                energy_to += model.storage[j].energy_to[i]
+                energy_from += model.storage[j].energy_from[i]
 
             return energy_from == energy_to
 
@@ -50,18 +46,14 @@ class SmartHome(pyo.AbstractModel):
         def objective_rule(model: pyo.Model):
 
             fob = 0.0
-
-            for j in model.simple_bat_index:
-                for i in model.t:
-                    fob += model.simple_bat[j].fob[i]
-
-            for j in model.intelligent_bat_index:
-                for i in model.t:
-                    fob += model.intelligent_bat[j].fob[i]
-
-            for j in model.node_index:
-                for i in model.t:
+            for i in model.t:
+                fob += model.grid.fob[i]
+                for j in model.storageIndex:
+                    fob += model.storage[j].fob[i]
+                for j in model.nodeIndex:
                     fob += model.node[j].fob[i]
+                for j in model.storageControllerIndex:
+                    fob += model.storageController[j].fob[i]
 
             return fob
 

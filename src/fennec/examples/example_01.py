@@ -11,7 +11,7 @@ from fennec.utils import calculate_house_load_power, calculate_pv_power, convert
 if __name__ == "__main__":
 
     start_dt = datetime(2025, 3, 22, 0, 0, 0, tzinfo=timezone.utc)
-    end_dt = datetime(2025, 3, 23, 12, 0, 0, tzinfo=timezone.utc)
+    end_dt = datetime(2025, 3, 23, 0, 0, 0, tzinfo=timezone.utc)
     delta_t = 15 * 60  # in seconds
 
     utc_timestamps = [
@@ -63,47 +63,48 @@ if __name__ == "__main__":
     ]
     pv_energy = convert_power_to_energy(pv_power, utc_timestamps)
 
-    grid_energy_limit = convert_power_to_energy([grid_contracted_power,] * len(utc_timestamps), utc_timestamps)
-    bat_charging_energy_limit = convert_power_to_energy([bat_charging_power,] * len(utc_timestamps), utc_timestamps)
-    bat_discharging_energy_limit = convert_power_to_energy([bat_discharging_power,] * len(utc_timestamps), utc_timestamps)
-
-    # Solar Surplus condition in self-consumption mode will force battery charge
-    solar_surplus = [max(0, pv_energy_i - load_energy_i) for load_energy_i, pv_energy_i in zip(load_energy, pv_energy)]
-    solar_deficit = [max(0, load_energy_i - pv_energy_i) for load_energy_i, pv_energy_i in zip(load_energy, pv_energy)]
-
+    grid_energy_limit = convert_power_to_energy(grid_contracted_power, utc_timestamps)
+    bat_charging_energy_limit = convert_power_to_energy(bat_charging_power, utc_timestamps)
+    bat_discharging_energy_limit = convert_power_to_energy(bat_discharging_power, utc_timestamps)
 
     model = models.SmartHome(is_grid_settled=True)
 
     data = {
         None: {  # The key None tells Pyomo that these data items are for the top-level model.
             't': {None: [i for i, _ in enumerate(utc_timestamps)]},
-            'node_index': {None: ['PV', 'LOAD']},
-            'intelligent_bat_index': {None: ['BAT']},
+            'nodeIndex': {None: ['PV01', 'LOAD01']},
+            'storageIndex': {None: ['BAT01']},
+            'storageControllerIndex': {None: ['CONT01']},
             'grid': {
-                'energy_limit': {i: v for i, v in enumerate(grid_energy_limit)},
+                'energy_limit': {None: grid_energy_limit},
                 'tariff_energy_from': {i: v for i, v in enumerate(tariff_energy_from)},
                 'tariff_energy_to': {i: v for i, v in enumerate(tariff_energy_to)},
             },
             'node': {
-                'PV': {
+                'PV01': {
                     'energy_from': {i: v for i, v in enumerate(pv_energy)},
                 },
-                'LOAD': {
+                'LOAD01': {
                     'energy_to': {i: v for i, v in enumerate(load_energy)},
                 },
             },
-            'intelligent_bat': {
-                'BAT': {
-                    'energy_to_limit': {i: v for i, v in enumerate(bat_charging_energy_limit)},
-                    'energy_from_limit': {i: v for i, v in enumerate(bat_discharging_energy_limit)},
+            'storage': {
+                'BAT01': {
                     'capacity': {None: bat_capacity},
-                    'soc_0': {None: bat_soc_0},
-                    'soc_specifications': {i: v for i, v in enumerate(bat_soc_specifications)},
                     'charging_efficiency': {None: bat_charging_efficiency},
                     'discharging_efficiency': {None: bat_discharging_efficiency},
+                    'soc_0': {None: bat_soc_0},
+                    'energy_to_limit': {None: bat_charging_energy_limit},
+                    'energy_from_limit': {None: bat_discharging_energy_limit},
+                }
+            },
+            'storageController': {
+                'CONT01': {
+                    'max_commands': {None: 4},
+                    'nodeIndex': {None: ['PV01', 'LOAD01']},
+                    'storageIndex': {None: ['BAT01']},
                     'command_penalty': {i: v for i, v in enumerate(bat_command_penalty)},
-                    'solar_surplus': {i: v for i, v in enumerate(solar_surplus)},
-                    'solar_deficit': {i: v for i, v in enumerate(solar_deficit)},
+                    'soc_specifications': {i: v for i, v in enumerate(bat_soc_specifications)},
                 }
             }
         }
@@ -112,9 +113,9 @@ if __name__ == "__main__":
     instance = model.create_instance(data)
 
     solver = pyo.SolverFactory("appsi_highs")
-    solver.options["mip_abs_gap"] = 0.0001
-    solver.options["mip_rel_gap"] = 0.001
-    solver.options["time_limit"] = 20
+    solver.options["mip_abs_gap"] = 0.1
+    solver.options["mip_rel_gap"] = 0.01
+    solver.options["time_limit"] = 120
 
     if not solver.available():
         print("Solver not available")
@@ -135,4 +136,4 @@ if __name__ == "__main__":
 
     # Output:
     for ti in instance.t:
-        print(f"t={ti:3.0f}, fob:grid/pv/bat={_v(instance.grid.fob, ti)}/{_v(instance.node['PV'].fob, ti)}/{_v(instance.intelligent_bat['BAT'].fob, ti)},  m/u/v/x/z={_v(instance.intelligent_bat['BAT'].m, ti)}/{_v(instance.intelligent_bat['BAT'].u, ti)}/{_v(instance.intelligent_bat['BAT'].v, ti)}/{_v(instance.intelligent_bat['BAT'].x, ti)}/{_v(instance.intelligent_bat['BAT'].z, ti)}, soc={_v(instance.intelligent_bat['BAT'].soc, ti)}, load={_v(instance.node['LOAD'].energy_from, ti)}, grid_to={_v(instance.grid.energy_to, ti)}, bat_to={_v(instance.intelligent_bat['BAT'].energy_to, ti)}, pv_from={_v(instance.node['PV'].energy_from, ti)}, bat_from={_v(instance.intelligent_bat['BAT'].energy_from, ti)}")
+        print(f"t={ti:3.0f}, ch={_v(instance.storage['BAT01'].charge, ti)}, dch={_v(instance.storage['BAT01'].discharge, ti)}, ss={_v(instance.storageController['CONT01'].solar_surplus, ti)}({_v(instance.storageController['CONT01'].flag_surplus, ti)}), sd={_v(instance.storageController['CONT01'].solar_deficit, ti)} fob:grid/pv/bat/cont={_v(instance.grid.fob, ti)}/{_v(instance.node['PV01'].fob, ti)}/{_v(instance.storage['BAT01'].fob, ti)}/{_v(instance.storageController['CONT01'].fob, ti)},  flag_arbitrage={_v(instance.storageController['CONT01'].flag_arbitrage, ti)}, charge_sc={_v(instance.storageController['CONT01'].charge_sc, ti)},discharge_sc={_v(instance.storageController['CONT01'].discharge_sc, ti)}, charge_arbitrage={_v(instance.storageController['CONT01'].charge_arbitrage, ti)}, discharge_arbitrage={_v(instance.storageController['CONT01'].discharge_arbitrage, ti)}, soc={_v(instance.storage['BAT01'].soc, ti)}, load={_v(instance.node['LOAD01'].energy_to, ti)}, bat_to={_v(instance.storage['BAT01'].energy_to, ti)}, pv_from={_v(instance.node['PV01'].energy_from, ti)}, grid_from={_v(instance.grid.energy_from, ti)}, bat_from={_v(instance.storage['BAT01'].energy_from, ti)}")

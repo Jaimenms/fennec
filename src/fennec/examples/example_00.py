@@ -57,24 +57,26 @@ if __name__ == "__main__":
     ]
     pv_energy = convert_power_to_energy(pv_power, utc_timestamps)
 
-    grid_energy_limit = convert_power_to_energy([grid_contracted_power] * n, utc_timestamps)
+    grid_energy_limit = convert_power_to_energy(grid_contracted_power, utc_timestamps)
 
     model = models.SmartHome(is_grid_settled=True)
 
     data = {
         None: {  # The key None tells Pyomo that these data items are for the top-level model.
             't': {None: [i for i, _ in enumerate(utc_timestamps)]},
+            'nodeIndex': {None: ['PV01', 'LOAD01']},
+            'storageIndex': {None: []},
+            'storageControllerIndex': {None: []},
             'grid': {
-                'energy_limit': {i: v for i, v in enumerate(grid_energy_limit)},
+                'energy_limit': {None: grid_energy_limit},
                 'tariff_energy_from': {i: v for i, v in enumerate(tariff_energy_from)},
                 'tariff_energy_to': {i: v for i, v in enumerate(tariff_energy_to)},
             },
-            'node_index': {None: ['PV', 'LOAD']},
             'node': {
-                'PV': {
+                'PV01': {
                     'energy_from': {i: v for i, v in enumerate(pv_energy)},
                 },
-                'LOAD': {
+                'LOAD01': {
                     'energy_to': {i: v for i, v in enumerate(load_energy)},
                 },
             },
@@ -102,4 +104,4 @@ if __name__ == "__main__":
 
     # Output:
     for ti in instance.t:
-        print(f"t={ti:3.0f}, load_energy={_v(instance.node['LOAD'].energy_to, ti)}, pv_energy_from={_v(instance.node['PV'].energy_from, ti)}, grid_energy_from={_v(instance.grid.energy_from, ti)}, grid_energy_to={_v(instance.grid.energy_to, ti)}")
+        print(f"t={ti:3.0f}, load_energy={_v(instance.node['LOAD01'].energy_to, ti)}, pv_energy_from={_v(instance.node['PV01'].energy_from, ti)}, grid_energy_from={_v(instance.grid.energy_from, ti)}, grid_energy_to={_v(instance.grid.energy_to, ti)}")

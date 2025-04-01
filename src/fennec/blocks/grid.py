@@ -18,7 +18,7 @@ class UnsettledGridBlock(pyo.ScalarBlock):
         #################### PARAMETERS ##########################
 
         # Energy limit based on contracted power in kWh
-        m.energy_limit = pyo.Param(m.t)
+        m.energy_limit = pyo.Param()
 
         # Energy from grid tariff
         m.tariff_energy_from = pyo.Param(m.t)
@@ -37,10 +37,10 @@ class UnsettledGridBlock(pyo.ScalarBlock):
         #################### CONSTRAINTS ##########################
 
         # Energy limit constraints to grid
-        m.energy_to_const = pyo.Constraint(m.t, rule=lambda model, i: model.energy_to[i] <= model.energy_limit[i])
+        m.energy_to_const = pyo.Constraint(m.t, rule=lambda model, i: model.energy_to[i] <= model.energy_limit)
 
         # Energy limit constraints from grid
-        m.energy_from_const = pyo.Constraint(m.t, rule=lambda model, i: model.energy_from[i] <= model.energy_limit[i])
+        m.energy_from_const = pyo.Constraint(m.t, rule=lambda model, i: model.energy_from[i] <= model.energy_limit)
 
         #################### OBJECTIVE ###########################
 
@@ -63,7 +63,7 @@ class SettledGridBlock(pyo.ScalarBlock):
         #################### PARAMETERS ##########################
 
         # Energy limit based on contracted power in kWh
-        m.energy_limit = pyo.Param(t)
+        m.energy_limit = pyo.Param()
 
         # Energy from grid tariff
         m.tariff_energy_from = pyo.Param(t, initialize=0.0, mutable=True)
@@ -84,17 +84,15 @@ class SettledGridBlock(pyo.ScalarBlock):
         # Settling constraints
         m.settling = pyo.Var(t, domain=Binary)
         m.settlement_const_1 = pyo.Constraint(t,
-                                                 rule=lambda model, i: model.energy_from[i] <= model.energy_limit[
-                                                     i] * model.settling[i])
+                                                 rule=lambda model, i: model.energy_from[i] <= model.energy_limit * model.settling[i])
         m.settlement_const_2 = pyo.Constraint(t,
-                                                 rule=lambda model, i: model.energy_to[i] <= model.energy_limit[
-                                                     i] * (1.0 - model.settling[i]))
+                                                 rule=lambda model, i: model.energy_to[i] <= model.energy_limit * (1.0 - model.settling[i]))
 
         # Energy limit constraints to grid
-        m.energy_to_const = pyo.Constraint(t, rule=lambda model, i: model.energy_to[i] <= model.energy_limit[i])
+        m.energy_to_const = pyo.Constraint(t, rule=lambda model, i: model.energy_to[i] <= model.energy_limit)
 
         # Energy limit constraints from grid
-        m.energy_from_const = pyo.Constraint(t, rule=lambda model, i: model.energy_from[i] <= model.energy_limit[i])
+        m.energy_from_const = pyo.Constraint(t, rule=lambda model, i: model.energy_from[i] <= model.energy_limit)
 
         #################### OBJECTIVE ###########################
 

@@ -7,6 +7,9 @@ from fennec.utils import calculate_house_load_power, calculate_pv_power, convert
 
 if __name__ == "__main__":
 
+    print("WIP")
+    exit()
+
     start_dt = datetime(2025, 3, 22, 0, 0, 0, tzinfo=timezone.utc)
     end_dt = datetime(2025, 3, 23, 12, 0, 0, tzinfo=timezone.utc)
     delta_t = 15 * 60  # in seconds

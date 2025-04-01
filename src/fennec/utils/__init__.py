@@ -12,6 +12,9 @@ def convert_power_to_energy(power, timestamps):
     :return:
     """
 
+    if type(power) is not list:
+        return power * (timestamps[1] - timestamps[0]) / 3600
+
     n = len(timestamps)
 
     delta_timestamps = [timestamps[i + 1] - timestamps[i] for i in range(n - 1)] + [
