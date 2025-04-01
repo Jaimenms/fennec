@@ -90,8 +90,6 @@ class Storage(pyo.Block):
         # Battery SOC Initial
         m.soc_0 = pyo.Param()
         m.soc_0_const = pyo.Constraint(rule=lambda model: model.soc[min(model.parent_block().t)] == model.soc_0)
-        m.soc_L_const = pyo.Constraint(rule=lambda model: model.soc[max(model.parent_block().t)] >= 50.0)
-
 
         #################### OBJECTIVE ###########################
 
