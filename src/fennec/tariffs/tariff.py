@@ -27,8 +27,12 @@ class Tariff:
         weekday = t.weekday()
         for schedule in self.schedules:
             if schedule.weekdays is None or weekday in schedule.weekdays:
-                if schedule._from <= t.strftime("%H:%M") < schedule._to:
+                _from = schedule._from
+                _to = schedule._to if schedule._to != "00:00" else "24:00"
+                if _from <= t.strftime("%H:%M") < _to:
                     return schedule.name
+        if self.name != 'export-none':
+            raise ValueError(f"Tariff {self.name} has no schedule for {t}")
 
     def get_price(self, name):
         for tariff_value in self.tariff_values:

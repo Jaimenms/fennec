@@ -25,13 +25,16 @@ highspy = "^1.10"
 pyomo = "^6.9.1"
 pysolar = "^0.13"
 
-[tool.poetry.group.development.dependencies]
+[tool.poetry.dev-dependencies]
 checksumdir = "^1.2"
 pytest = "*"
 black = "^24.4"
 coverage = "^7.4"
 coverage-badge = "^1.1"
-
+jupyter = "^1.0.0"
+ipykernel = "^6.0.0"
+pandas = "^2.1"
+matplotlib = "^3.10"
 
 [[tool.poetry.source]]
 name = "custom_pypi"
@@ -39,7 +42,7 @@ url = "https://pypi.org/simple"
 
 [tool.black]
 line-length = 120
-target-version = ['py311']
+target-version = ['py312']
 include = '\.pyi?$'
 
 [build-system]

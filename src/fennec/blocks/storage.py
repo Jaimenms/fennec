@@ -58,20 +58,6 @@ class Storage(pyo.Block):
             t, rule=lambda model, i: model.energy_from[i] + model.external_from[i] == model.energy_from_limit * model.discharge[i]
         )
 
-        # # Settlement for x and z
-        # m.settling = pyo.Var(t, domain=Binary)
-        # m.settlement_const_1 = pyo.Constraint(
-        #     t, rule=lambda model, i: model.charge[i] <= model.settling[i]
-        # )
-        # m.settlement_const_2 = pyo.Constraint(
-        #     t, rule=lambda model, i: model.discharge[i] <= (1.0 - model.settling[i])
-        # )
-
-        # Guarantee that if the battery is not available, the commands are zero.
-        m.is_available_param = pyo.Param(t, initialize=1, mutable=True)
-        m.is_available_charge_const = pyo.Constraint(t, rule=lambda model, i: model.charge[i] <= model.is_available_param[i])
-        m.is_available_discharge_const = pyo.Constraint(t, rule=lambda model, i: model.discharge[i] <= model.is_available_param[i])
-
         def battery_capacity_rule(model, i):
             # If i is the first time in model.t, skip the constraint
             if i == model.parent_block().t.first():
@@ -88,8 +74,8 @@ class Storage(pyo.Block):
         m.battery_capacity_const = pyo.Constraint(t, rule=battery_capacity_rule)
 
         # Battery SOC Initial
-        m.soc_0 = pyo.Param()
-        m.soc_0_const = pyo.Constraint(rule=lambda model: model.soc[min(model.parent_block().t)] == model.soc_0)
+        m.soc_initial = pyo.Param()
+        m.soc_initial_const = pyo.Constraint(rule=lambda model: model.soc[min(model.parent_block().t)] == model.soc_initial)
 
         #################### OBJECTIVE ###########################
 

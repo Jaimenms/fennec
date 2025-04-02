@@ -1,14 +1,12 @@
 from datetime import datetime, timezone
 
 import pyomo.environ as pyo
-from fennec import blocks, models, tariffs
-from fennec.utils import calculate_house_load_power, calculate_pv_power, convert_power_to_energy
+from fennec import tariffs
+from fennec.fennec import run
+from fennec.utils import calculate_house_load_power, calculate_pv_power, convert_power_to_energy, get_positions_before_T, get_is_plugged
 
 
-if __name__ == "__main__":
-
-    print("WIP")
-    exit()
+def get_data():
 
     start_dt = datetime(2025, 3, 22, 0, 0, 0, tzinfo=timezone.utc)
     end_dt = datetime(2025, 3, 23, 12, 0, 0, tzinfo=timezone.utc)
@@ -31,23 +29,21 @@ if __name__ == "__main__":
     grid_tariff_export = tariffs.export_none_tariff
     grid_tariff_import = tariffs.import_bi_daily_tariff
     ev_battery_capacity = 40.0
-    ev_plugged = [1.0,] * len(utc_timestamps)
+    ev_is_plugged = [1.0, ] * len(utc_timestamps)
+    ev_t_soc_objective_hour = '08:00'
+    ev_is_unplugged_from = '09:00'
+    ev_is_unplugged_to = '16:00'
+    ev_energy_consumed_when_unplugged = 0.2*ev_battery_capacity/(7*4)
     ev_threshold_soc = None
     ev_threshold_index = None
-    ev_soc_0 = 20
-    ev_soc_specifications = [(len(utc_timestamps) - 1, 50)]
+    ev_soc_initial = 0
+    ev_soc_min = 20
+    ev_soc_objective = 90
     ev_charging_power = 2.0
     ev_is_power_variable = False
     ev_charging_efficiency = 0.95
     ev_command_penalty = [0.001,] * len(utc_timestamps)
-    bat_charging_power = 4.0
-    bat_discharging_power = 4.0
-    bat_capacity = 6
-    bat_soc_0 = 20
-    bat_soc_specifications = [(len(utc_timestamps) - 1, 50)]
-    bat_charging_efficiency = 0.95
-    bat_discharging_efficiency = 0.95
-    bat_command_penalty = [0.001,] * len(utc_timestamps)
+    ev_charge_objective_penalty = 0.5
     tariff_energy_to = [grid_tariff_export(datetime.fromtimestamp(ti, tz=timezone.utc)) for ti in utc_timestamps]
     tariff_energy_from = [grid_tariff_import(datetime.fromtimestamp(ti, tz=timezone.utc)) for ti in utc_timestamps]
 
@@ -73,64 +69,68 @@ if __name__ == "__main__":
     ]
     pv_energy = convert_power_to_energy(pv_power, utc_timestamps)
 
-    grid_energy_limit = convert_power_to_energy([grid_contracted_power,] * len(utc_timestamps), utc_timestamps)
-    grid = blocks.GridBlock(
-        name='Grid',
-        energy_limit=grid_energy_limit,
-        tariff_energy_to=tariff_energy_to,
-        tariff_energy_from=tariff_energy_from,
-        is_settled=grid_is_settled,
-    )
+    grid_energy_limit = convert_power_to_energy(grid_contracted_power, utc_timestamps)
+    ev_charging_energy_limit = convert_power_to_energy(ev_charging_power, utc_timestamps)
 
-    pv = blocks.PhotovoltaicBlock(
-        name='Photovoltaic',
-        pv_energy=pv_energy  # timestamps in seconds
-    )
+    data = {
+        None: {  # The key None tells Pyomo that these data items are for the top-level model.
+            't': {None: [i for i, _ in enumerate(utc_timestamps)]},
+            'nodeIndex': {None: ['PV01', 'LOAD01']},
+            'vehicleIndex': {None: ['EV01']},
+            'vehicleControllerIndex': {None: ['CONT01']},
+            'grid': {
+                'energy_limit': {None: grid_energy_limit},
+                'tariff_energy_from': {i: v for i, v in enumerate(tariff_energy_from)},
+                'tariff_energy_to': {i: v for i, v in enumerate(tariff_energy_to)},
+            },
+            'node': {
+                'PV01': {
+                    'energy_from': {i: v for i, v in enumerate(pv_energy)},
+                },
+                'LOAD01': {
+                    'energy_to': {i: v for i, v in enumerate(load_energy)},
+                },
+            },
+            'vehicle': {
+                'EV01': {
+                    'capacity': {None: ev_battery_capacity},
+                    'charging_efficiency': {None: ev_charging_efficiency},
+                    'soc_initial': {None: ev_soc_initial},
+                    'energy_to_limit': {None: ev_charging_energy_limit},
+                    'is_plugged': {i: (1-v) for i, v in enumerate(get_is_plugged(utc_timestamps, ev_is_unplugged_from, ev_is_unplugged_to))},
+                    'external_from': {i: (v*ev_energy_consumed_when_unplugged) for i, v in enumerate(get_is_plugged(utc_timestamps, ev_is_unplugged_from, ev_is_unplugged_to))},
+                }
+            },
+            'vehicleController': {
+                'CONT01': {
+                    'nodeIndex': {None: ['PV01', 'LOAD01']},
+                    'vehicleIndex': {None: ['EV01']},
+                    'max_commands': {None: 4},
+                    'soc_min': {None: ev_soc_min},
+                    't_soc_objective': {None: get_positions_before_T(utc_timestamps, ev_t_soc_objective_hour)},
+                    'soc_objective': {i: ev_soc_objective for i in get_positions_before_T(utc_timestamps, ev_t_soc_objective_hour)},
+                    'charge_objective_penalty': {None: ev_charge_objective_penalty},
+                    'command_penalty': {i: v for i, v in enumerate(ev_command_penalty)},
+                }
+            }
+        }
+    }
 
-    bat_charging_energy_limit = convert_power_to_energy([bat_charging_power,] * len(utc_timestamps), utc_timestamps)
-    bat_discharging_energy_limit = convert_power_to_energy([bat_discharging_power,] * len(utc_timestamps), utc_timestamps)
-    bat = blocks.FixedBatteryBlock(
-        name='Battery',
-        charging_energy_limit=bat_charging_energy_limit,
-        discharging_energy_limit=bat_discharging_energy_limit,
-        capacity=bat_capacity,
-        soc_0=bat_soc_0,
-        soc_specifications=bat_soc_specifications,
-        charging_efficiency=bat_charging_efficiency,
-        discharging_efficiency=bat_discharging_efficiency,
-        command_penalty=bat_command_penalty,
-        load_energy=load_energy,
-        pv_energy=pv_energy,
-    )
+    return data
 
-    ev_charging_energy_limit = convert_power_to_energy([ev_charging_power, ] * len(utc_timestamps), utc_timestamps)
-    ev = blocks.VehicleBatteryBlock(
-        name='EV',
-        is_available=[True,] * len(utc_timestamps),
-        charging_energy_limit=ev_charging_energy_limit,
-        capacity=ev_battery_capacity,
-        soc_0=ev_soc_0,
-        soc_specifications=ev_soc_specifications,
-        charging_efficiency=ev_charging_efficiency,
-        command_penalty=ev_command_penalty,
-    )
 
-    model = models.SmartHome(
-        name='House',
-        load_energy=load_power,
-        grid_block=grid,
-        pv_block=pv,
-        ev_blocks=[ev, ],
-        bat_blocks=[bat, ]
-    )
+if __name__ == "__main__":
 
-    solver = pyo.SolverFactory("appsi_highs")
+    data = get_data()
 
-    print(print(solver.available()))
-    results = solver.solve(model, tee=False)
+    results, instance = run(data)
 
-    # 6) Display results
-    print("Solver Status:", results.solver.status)
-    print("Termination Condition:", results.solver.termination_condition)
+    def _v(x, i):
+        try:
+            return f"{round(pyo.value(x[i]), 3):5.3f}"
+        except:
+            return "  N/A"
 
-    print(f"Objective Value = {model.obj():.2f}")
+    # Output:
+    for ti in instance.t:
+        print(f"t={ti:3.0f}, external_from={_v(instance.vehicle['EV01'].external_from, ti)},  fob:grid/pv/bat/cont={_v(instance.grid.fob, ti)}/{_v(instance.node['PV01'].fob, ti)}/{_v(instance.vehicle['EV01'].fob, ti)}/{_v(instance.vehicleController['CONT01'].fob, ti)}, charge_sc={_v(instance.vehicleController['CONT01'].charge, ti)}, soc={_v(instance.vehicle['EV01'].soc, ti)}, load={_v(instance.node['LOAD01'].energy_to, ti)}, bat_to={_v(instance.vehicle['EV01'].energy_to, ti)}, pv_from={_v(instance.node['PV01'].energy_from, ti)}, grid_from={_v(instance.grid.energy_from, ti)}")

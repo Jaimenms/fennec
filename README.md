@@ -2,7 +2,7 @@
 
 ![Logo](docs/imgs/logo-small.png)
 
-This project aims to develop a house energy management system.
+This project aims to develop a house optimization system.
 
 For more information about the services, please refer to the documentation [here](./src/sel_ev_sdk/README.md).
 
@@ -10,8 +10,6 @@ For more information about the services, please refer to the documentation [here
 
 
 # Using the package in your project
-
-(SWARTIFACTS_APP_EMCPENERGYMANAGEMENTCLOUDPLATFORM_READER FS is required)
 
 ## Local installation using pip
 
@@ -118,6 +116,14 @@ poetry run coverage run -m pytest tests/unit
 poetry run python build_coverage.py
 ```
 
+### Running jupyter notebook
+
+```bash
+poetry run jupyter notebook
+```
+
+
+
 ## Building and publishing the package
 
 1. Build the package
@@ -126,26 +132,16 @@ poetry run python build_coverage.py
 poetry build
 ```
 
-2. Connect to EDP Pypi private repository
-
-(SWARTIFACTS_APP_EMCPENERGYMANAGEMENTCLOUDPLATFORM_PUBLISHER FS is required)
-
-```bash
-poetry config http-basic.private <username> <password>
-```
-
-where username is equal to the EDP E number and password is the EDM IAM password.
-
-3. Change the version of the package
+2. Change the version of the package
 
 Open pyproject.toml and change the "version" field.
 
 Update the file CHANGELOG.md.
 
-4. Publish the package
+3Publish the package
 
 ```bash
-poetry publish --repository private
+poetry publish
 ```
 
 

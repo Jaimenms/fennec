@@ -1,17 +1,15 @@
-# import logging
-# logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-
 from datetime import datetime, timezone
 
 import pyomo.environ as pyo
-from fennec import models, tariffs
+from fennec import tariffs
+from fennec.fennec import run
 from fennec.utils import calculate_house_load_power, calculate_pv_power, convert_power_to_energy
 
 
-if __name__ == "__main__":
+def get_data():
 
     start_dt = datetime(2025, 3, 22, 0, 0, 0, tzinfo=timezone.utc)
-    end_dt = datetime(2025, 3, 23, 0, 0, 0, tzinfo=timezone.utc)
+    end_dt = datetime(2025, 3, 23, 12, 0, 0, tzinfo=timezone.utc)
     delta_t = 15 * 60  # in seconds
 
     utc_timestamps = [
@@ -33,8 +31,8 @@ if __name__ == "__main__":
     bat_charging_power = 4.0
     bat_discharging_power = 4.0
     bat_capacity = 6
-    bat_soc_0 = 50
-    bat_soc_specifications = [0.0] * len(utc_timestamps)
+    bat_soc_intial = 50
+    bat_soc_specifications = ([0.0] * len(utc_timestamps)) [:-1] + [80.0]
     bat_charging_efficiency = 0.95
     bat_discharging_efficiency = 0.95
     bat_command_penalty = [0.1,] * len(utc_timestamps)
@@ -67,8 +65,6 @@ if __name__ == "__main__":
     bat_charging_energy_limit = convert_power_to_energy(bat_charging_power, utc_timestamps)
     bat_discharging_energy_limit = convert_power_to_energy(bat_discharging_power, utc_timestamps)
 
-    model = models.SmartHome(is_grid_settled=True)
-
     data = {
         None: {  # The key None tells Pyomo that these data items are for the top-level model.
             't': {None: [i for i, _ in enumerate(utc_timestamps)]},
@@ -93,7 +89,7 @@ if __name__ == "__main__":
                     'capacity': {None: bat_capacity},
                     'charging_efficiency': {None: bat_charging_efficiency},
                     'discharging_efficiency': {None: bat_discharging_efficiency},
-                    'soc_0': {None: bat_soc_0},
+                    'soc_initial': {None: bat_soc_intial},
                     'energy_to_limit': {None: bat_charging_energy_limit},
                     'energy_from_limit': {None: bat_discharging_energy_limit},
                 }
@@ -110,23 +106,14 @@ if __name__ == "__main__":
         }
     }
 
-    instance = model.create_instance(data)
+    return data
 
-    solver = pyo.SolverFactory("appsi_highs")
-    solver.options["mip_abs_gap"] = 0.1
-    solver.options["mip_rel_gap"] = 0.01
-    solver.options["time_limit"] = 120
 
-    if not solver.available():
-        print("Solver not available")
-        exit(1)
+if __name__ == "__main__":
 
-    results = solver.solve(instance, tee=False)
+    data = get_data()
 
-    # 6) Display results
-    print("Solver Status:", results.solver.status)
-    print("Termination Condition:", results.solver.termination_condition)
-    print(f"Objective Value = {instance.obj():.2f}")
+    results, instance = run(data)
 
     def _v(x, i):
         try:

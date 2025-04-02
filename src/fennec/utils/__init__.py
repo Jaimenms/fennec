@@ -1,7 +1,72 @@
 import math
+import warnings
+
+import numpy as np
 from datetime import datetime, timezone
+from pyomo.environ import Var, Param
+
+warnings.filterwarnings("ignore", message="no explicit representation of timezones available for np.datetime64")
+
 from pysolar.solar import get_altitude, get_azimuth
 from pysolar.radiation import get_radiation_direct
+
+
+def convert_none_keys(obj):
+    # If the object is a dictionary, iterate through its items
+    if isinstance(obj, dict):
+        new_dict = {}
+        for key, value in obj.items():
+            # Replace the key if it's the string "None"
+            new_key = None if key == "None" else key
+            # Recursively process the value
+            new_dict[new_key] = convert_none_keys(value)
+        return new_dict
+    # If the object is a list, process each element
+    elif isinstance(obj, list):
+        return [convert_none_keys(item) for item in obj]
+    # Return the object if it's neither a dict nor a list
+    else:
+        return obj
+
+
+def get_detailed_results(results, instance):
+    # Create a JSON-serializable dictionary from the results
+    results_dict = {
+        "Solver": results.solver.name,
+        "Status": str(results.solver.status),
+        "Termination Condition": str(results.solver.termination_condition),
+    }
+
+    records = []
+    for var in instance.component_objects(Var, active=True):
+        # Check if the variable is indexed
+        try:
+            if var.is_indexed():
+                for index in var:
+                    records.append({'Variable': var.name, 'Index': index, 'Value': var[index].value})
+            else:
+                records.append({'Variable': var.name, 'Index': None, 'Value': var.value})
+        except:
+            continue
+
+    results_dict["Solutions"] = records
+
+    records = []
+    for var in instance.component_objects(Param, active=True):
+        # Check if the variable is indexed
+        try:
+            if var.is_indexed():
+                for index in var:
+                    records.append({'Variable': var.name, 'Index': index, 'Value': var[index].value})
+            else:
+                records.append({'Variable': var.name, 'Index': None, 'Value': var.value})
+        except:
+            continue
+
+    results_dict["Parameters"] = records
+
+    # Write the dictionary to a JSON file
+    return results_dict
 
 
 def convert_power_to_energy(power, timestamps):
@@ -140,3 +205,81 @@ def calculate_pv_power(utc_timestamp, area, efficiency, latitude, longitude, til
     # Compute the panel power output in kW.
     power_output = area * efficiency * effective_irradiance_kw
     return power_output
+
+
+def get_positions_before_T(utc_timestamps, T_str, ref_date=None):
+    """
+    Returns the positions (indices) of the instants in utc_timestamps that are immediately before the
+    time specified by T_str (formatted as "HH:MM") on a given reference date.
+
+    Parameters:
+        utc_timestamps (list or np.array): Array of UTC timestamps in seconds (assumed sorted).
+        T_str (str): Time in "HH:MM" format (UTC).
+        ref_date (datetime.date, optional): The reference date for T_str.
+            If None, today's UTC date is used.
+
+    Returns:
+        List[int]: List of indices corresponding to the maximum timestamp that is less than T.
+    """
+    # Use today's date in UTC if no reference date is provided
+    if ref_date is None:
+        ref_date = datetime.now(timezone.utc).date()
+
+    # Combine the reference date with the time string to get a full datetime in UTC
+    T_datetime = datetime.strptime(f"{ref_date} {T_str}", "%Y-%m-%d %H:%M")
+    T_datetime = T_datetime.replace(tzinfo=timezone.utc)
+    T_timestamp = T_datetime.timestamp()
+
+    # Convert list to numpy array (assumes the array is sorted in ascending order)
+    utc_arr = np.array(utc_timestamps)
+
+    # Find the insertion index for T_timestamp.
+    # searchsorted returns the index where T_timestamp should be inserted to maintain order.
+    idx = np.searchsorted(utc_arr, T_timestamp) - 1
+
+    if idx < 0:
+        # No timestamps in the array are before T
+        return []
+
+    # Retrieve the value at the found index. This is the latest timestamp < T.
+    target_value = utc_arr[idx]
+
+    # Get all indices where the timestamp equals the target value (handling possible duplicates)
+    positions = np.where(utc_arr == target_value)[0]
+
+    return positions.tolist()
+
+
+
+def get_is_plugged(utc_timestamps, t_ini, t_fini):
+    """
+    Returns a binary vector (list of 0s and 1s) corresponding to utc_timestamps,
+    where 1 indicates the timestamp is within the time window defined by T_INI and T_FINI,
+    and 0 otherwise.
+
+    Parameters:
+        utc_timestamps (list): List of UTC timestamps in seconds.
+        t_ini (str): Start time in "HH:MM" format (UTC).
+        t_fini (str): End time in "HH:MM" format (UTC).
+
+    Returns:
+        list: Binary vector (0/1) where 1 marks timestamps within [T_INI, T_FINI].
+    """
+
+    tini_hour = int(t_ini.split(":")[0])
+    tini_minute = int(t_ini.split(":")[1])
+    tfini_hour = int(t_fini.split(":")[0])
+    tfini_minute = int(t_fini.split(":")[1])
+
+    output = []
+    for ts in utc_timestamps:
+
+        ts_hour = datetime.fromtimestamp(ts, timezone.utc).hour
+        ts_minute = datetime.fromtimestamp(ts, timezone.utc).minute
+
+        if (tini_hour*60 + tini_minute) <= (ts_hour*60 + ts_minute) <= (tfini_hour*60 + tfini_minute):
+            output.append(1)
+        else:
+            output.append(0)
+
+    return output
