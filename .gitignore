@@ -8,3 +8,4 @@ cache
 artifacts
 .coverage
 requirements_layer.txt
+.ipynb_checkpoints/
