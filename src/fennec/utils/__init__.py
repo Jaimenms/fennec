@@ -3,7 +3,7 @@ import warnings
 
 import numpy as np
 from datetime import datetime, timezone
-from pyomo.environ import Var, Param
+from pyomo.environ import Var, Param, Set
 
 warnings.filterwarnings("ignore", message="no explicit representation of timezones available for np.datetime64")
 
@@ -38,6 +38,17 @@ def get_detailed_results(results, instance):
     }
 
     records = []
+    for set_i in instance.component_objects(Set, active=True):
+        # Check if the variable is indexed
+        try:
+            for value in set_i:
+                records.append({'Set': set_i.name, 'Value': value})
+        except:
+            continue
+
+    results_dict["Sets"] = records
+
+    records = []
     for var in instance.component_objects(Var, active=True):
         # Check if the variable is indexed
         try:
@@ -49,7 +60,7 @@ def get_detailed_results(results, instance):
         except:
             continue
 
-    results_dict["Solutions"] = records
+    results_dict["Variables"] = records
 
     records = []
     for var in instance.component_objects(Param, active=True):
@@ -57,9 +68,9 @@ def get_detailed_results(results, instance):
         try:
             if var.is_indexed():
                 for index in var:
-                    records.append({'Variable': var.name, 'Index': index, 'Value': var[index].value})
+                    records.append({'Parameter': var.name, 'Index': index, 'Value': var[index].value})
             else:
-                records.append({'Variable': var.name, 'Index': None, 'Value': var.value})
+                records.append({'Parameter': var.name, 'Index': None, 'Value': var.value})
         except:
             continue
 

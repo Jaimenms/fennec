@@ -30,6 +30,10 @@ class Storage(pyo.Block):
         # Energy from battery (discharging)
         m.energy_from = pyo.Var(t, domain=PositiveReals)
 
+        m.soc_upper_flag = pyo.Var(t, domain=Binary)
+        m.soc_lower_flag = pyo.Var(t,  domain=Binary)
+
+
         #################### PARAMETERS ###########################
 
         # Energy limits for charging in kWh
@@ -47,29 +51,46 @@ class Storage(pyo.Block):
         # External discharging in kWh
         m.external_from = pyo.Param(t, mutable=True, initialize=0)
 
+        m.charging_efficiency = pyo.Param(initialize=0, mutable=True)
+
+        m.discharging_efficiency = pyo.Param(initialize=0, mutable=True)
+
 
         #################### CONSTRAINTS ###########################
 
+        m.settling = pyo.Var(t, domain=Binary)
+        m.settlement_const_1 = pyo.Constraint(t,
+                                                 rule=lambda model, i: model.energy_from[i] <= model.energy_from_limit * model.settling[i])
+        m.settlement_const_2 = pyo.Constraint(t,
+                                                 rule=lambda model, i: model.energy_to[i] <= model.energy_to_limit * (1.0 - model.settling[i]))
+
+
+        m.soc_upper_flag_const = pyo.Constraint(t, rule=lambda model, i: model.soc[i] - 95 <= 100*model.soc_upper_flag[i])
+        m.soc_lower_flag_const = pyo.Constraint(t, rule=lambda model, i: 5 - model.soc[i] <= 100*model.soc_lower_flag[i])
+
+
         # Guarantee that the energy to and from the battery are within the limits.
-        m.energy_to_const = pyo.Constraint(
-            t, rule=lambda model, i: model.energy_to[i] + model.external_to[i] == model.energy_to_limit * model.charge[i]
+        m.energy_to_const_1 = pyo.Constraint(
+            t, rule=lambda model, i: model.energy_to[i] == model.energy_to_limit * model.charge[i]
         )
-        m.energy_from_const = pyo.Constraint(
-            t, rule=lambda model, i: model.energy_from[i] + model.external_from[i] == model.energy_from_limit * model.discharge[i]
+        m.energy_to_const_2 = pyo.Constraint(
+            t, rule=lambda model, i: model.energy_to[i] + model.external_to[i] <= model.energy_to_limit
+        )
+        m.energy_from_const_1 = pyo.Constraint(
+            t, rule=lambda model, i: model.energy_from[i] == model.energy_from_limit * model.discharge[i]
+        )
+        m.energy_from_const_2 = pyo.Constraint(
+            t, rule=lambda model, i: model.energy_from[i] + model.external_from[i] <= model.energy_from_limit
         )
 
         def battery_capacity_rule(model, i):
-            # If i is the first time in model.t, skip the constraint
             if i == model.parent_block().t.first():
                 return pyo.Constraint.Skip
 
-            # Otherwise, enforce the recursion
             return (
                     model.capacity * model.soc[i - 1] - model.capacity * model.soc[i] ==
-                    - 100 * model.energy_to[i - 1]
-                    - 100 * model.external_to[i - 1]
-                    + 100 * model.energy_from[i - 1]
-                    + 100 * model.external_from[i - 1]
+                    - 100 * model.charging_efficiency * (model.energy_to[i - 1] + model.external_to[i - 1] )
+                    + 100 / model.discharging_efficiency * (model.energy_from[i - 1] + model.external_from[i - 1])
             )
         m.battery_capacity_const = pyo.Constraint(t, rule=battery_capacity_rule)
 

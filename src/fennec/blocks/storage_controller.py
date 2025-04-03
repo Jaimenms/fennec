@@ -28,6 +28,11 @@ class StorageController(pyo.Block):
         # Command penalty
         m.command_penalty = pyo.Param(t, initialize=0.0, mutable=True)
 
+        # Solar surplus energy in kWh
+        m.solar_surplus = pyo.Param(t)
+
+        # Solar deficit energy in kWh
+        m.solar_deficit = pyo.Param(t)
 
         #################### VARIABLES ###########################
 
@@ -46,15 +51,6 @@ class StorageController(pyo.Block):
         # Continuous discharging power (dimensionless) for m consumption.
         m.discharge_sc = pyo.Var(t, bounds=(0, 1), domain=PositiveReals)
 
-        # Binary variable for surplus positive
-        m.flag_surplus = pyo.Var(t, domain=Binary)
-
-        # Solar surplus energy in kWh
-        m.solar_surplus = pyo.Var(t, domain=PositiveReals)
-
-        # Solar deficit energy in kWh
-        m.solar_deficit = pyo.Var(t, domain=PositiveReals)
-
         # Energy charged by the battery in kWh
         m.energy_to = pyo.Var(t, domain=PositiveReals)
 
@@ -64,6 +60,8 @@ class StorageController(pyo.Block):
         #################### CONSTRAINTS ###########################
 
         # In self-consumption mode (m[t] = 0), force arbitrage commands to zero.
+        # m.flag_arbitrage_const = pyo.Constraint(t, rule=lambda model, i: model.charge_arbitrage[i] + model.discharge_arbitrage[i] >= model.flag_arbitrage[i])
+
         m.flag_arbitrage_0_const_x = pyo.Constraint(t, rule=lambda model, i: model.charge_arbitrage[i] <= model.flag_arbitrage[i])
         m.flag_arbitrage_0_const_z = pyo.Constraint(t, rule=lambda model, i: model.discharge_arbitrage[i] <= model.flag_arbitrage[i])
 
@@ -71,8 +69,6 @@ class StorageController(pyo.Block):
         m.flag_arbitrage_1_const_u = pyo.Constraint(t, rule=lambda model, i: model.charge_sc[i] <= (1 - model.flag_arbitrage[i]))
         m.flag_arbitrage_1_const_v = pyo.Constraint(t, rule=lambda model, i: model.discharge_sc[i] <= (1 - model.flag_arbitrage[i]))
 
-        # Initial condition for m
-        m.initial_m_const = pyo.Constraint(rule=lambda model: model.flag_arbitrage[min(model.parent_block().t)] == 0)
 
         # Calculate the energy charged and discharged by the battery
         def energy_to_rule(model, i):
@@ -89,50 +85,26 @@ class StorageController(pyo.Block):
             return energy_from == model.energy_from[i]
         m.energy_from_const = pyo.Constraint(t, rule=energy_from_rule)
 
-        # Calculate the energy consumed and produced by the nodes
-
         # Control
-        def solar_surplus_rule_1(model, i):
-            produced_energy = 0
-            consumed_energy = 0
-            for ind in model.nodeIndex:
-                consumed_energy += model.parent_block().node[ind].energy_to[i]
-                produced_energy += model.parent_block().node[ind].energy_from[i]
-            return model.solar_surplus[i] >= produced_energy - consumed_energy
-        m.solar_surplus_const_1 = pyo.Constraint(t, rule=solar_surplus_rule_1)
+        def enforce_soc_upper_rule(model, i):
+            # If SOC[i] > 0.95, then must have soc_upper_flag[i] = 1.
+            # If SOC[i] <= 0.95, we can have soc_upper_flag[i] = 0.
 
-        def solar_surplus_rule_2(model, i):
-            produced_energy = 0
-            consumed_energy = 0
-            for ind in model.nodeIndex:
-                consumed_energy += model.parent_block().node[ind].energy_to[i]
-                produced_energy += model.parent_block().node[ind].energy_from[i]
-            return model.solar_surplus[i] <= produced_energy - consumed_energy + BIG_M * (1-model.flag_surplus[i])
-        m.solar_surplus_const_2 = pyo.Constraint(t, rule=solar_surplus_rule_2)
+            # (a) Force flag = 1 if SOC[i] is bigger than 0.95:
+            #     SOC[i] - 0.95 <= M * soc_upper_flag[i]
+            # This means if SOC[i] > 0.95, then the LHS is positive, so soc_upper_flag[i] must be 1.
+            #
+            # (b) Optionally bound below:
+            #     SOC[i] - 0.95 >= -M * (1 - soc_upper_flag[i])
+            # ensures that if soc_upper_flag[i] = 0, then SOC[i] can't exceed 0.95 by too much.
 
-        m.solar_surplus_const_3 = pyo.Constraint(t, m.storageIndex, rule=lambda model, i, si: model.charge_sc[i] * model.parent_block().storage[si].energy_to_limit <= model.solar_surplus[i] + model.parent_block().storage[si].energy_to_limit * model.flag_arbitrage[i])
-        m.solar_surplus_const_4 = pyo.Constraint(t, m.storageIndex, rule=lambda model, i, si: model.charge_sc[i] * model.parent_block().storage[si].energy_to_limit >= model.solar_surplus[i] - model.parent_block().storage[si].energy_to_limit * model.flag_arbitrage[i])
+            return model.SOC[i] - 0.95 <= BIG_M * model.soc_upper_flag[i]
 
-        def solar_deficit_rule_1(model, i):
-            produced_energy = 0
-            consumed_energy = 0
-            for ind in model.nodeIndex:
-                consumed_energy += model.parent_block().node[ind].energy_to[i]
-                produced_energy += model.parent_block().node[ind].energy_from[i]
-            return model.solar_deficit[i] >= consumed_energy - produced_energy
-        m.solar_deficit_const_1 = pyo.Constraint(t, rule=solar_deficit_rule_1)
+        m.solar_surplus_const_1 = pyo.Constraint(t, m.storageIndex, rule=lambda model, i, si: model.charge_sc[i] * model.parent_block().storage[si].energy_to_limit <= model.solar_surplus[i] + BIG_M * (model.flag_arbitrage[i]))# + model.parent_block().storage[si].soc_upper_flag[i]))
+        m.solar_surplus_const_2 = pyo.Constraint(t, m.storageIndex, rule=lambda model, i, si: model.charge_sc[i] * model.parent_block().storage[si].energy_to_limit >= model.solar_surplus[i] - BIG_M * (model.flag_arbitrage[i]))# + model.parent_block().storage[si].soc_upper_flag[i]))
 
-        def solar_deficit_rule_2(model, i):
-            produced_energy = 0
-            consumed_energy = 0
-            for ind in model.nodeIndex:
-                consumed_energy += model.parent_block().node[ind].energy_to[i]
-                produced_energy += model.parent_block().node[ind].energy_from[i]
-            return model.solar_deficit[i] <= consumed_energy - produced_energy + BIG_M * model.flag_surplus[i]
-        m.solar_deficit_const_2 = pyo.Constraint(t, rule=solar_deficit_rule_2)
-
-        m.solar_deficit_const_3 = pyo.Constraint(t, m.storageIndex, rule=lambda model, i, si: model.discharge_sc[i] * model.parent_block().storage[si].energy_from_limit <= model.solar_deficit[i] + model.parent_block().storage[si].energy_from_limit * model.flag_arbitrage[i])
-        m.solar_deficit_const_4 = pyo.Constraint(t, m.storageIndex, rule=lambda model, i, si: model.discharge_sc[i] * model.parent_block().storage[si].energy_from_limit >= model.solar_deficit[i] - model.parent_block().storage[si].energy_from_limit * model.flag_arbitrage[i])
+        m.solar_deficit_const_1 = pyo.Constraint(t, m.storageIndex, rule=lambda model, i, si: model.discharge_sc[i] * model.parent_block().storage[si].energy_from_limit <= model.solar_deficit[i] + BIG_M * (model.flag_arbitrage[i]))# + model.parent_block().storage[si].soc_lower_flag[i]))
+        m.solar_deficit_const_2 = pyo.Constraint(t, m.storageIndex, rule=lambda model, i, si: model.discharge_sc[i] * model.parent_block().storage[si].energy_from_limit >= model.solar_deficit[i] - BIG_M * (model.flag_arbitrage[i]))# + model.parent_block().storage[si].soc_lower_flag[i]))
 
         def charge_rule(model, i, si):
             return model.parent_block().storage[si].charge[i] == model.charge_arbitrage[i] + model.charge_sc[i]
@@ -141,7 +113,6 @@ class StorageController(pyo.Block):
         def discharge_rule(model, i, si):
             return model.parent_block().storage[si].discharge[i] == model.discharge_arbitrage[i] + model.discharge_sc[i]
         m.controller_discharge_const = pyo.Constraint(t, m.storageIndex, rule=discharge_rule)
-
 
         # Objective function
         m.fob = pyo.Var(t, domain=PositiveReals)

@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import pyomo.environ as pyo
 from fennec import tariffs
 from fennec.fennec import run
-from fennec.utils import calculate_house_load_power, calculate_pv_power, convert_power_to_energy
+from fennec.utils import calculate_house_load_power, calculate_pv_power, convert_power_to_energy, get_detailed_results
 
 
 def get_data():
@@ -16,11 +16,11 @@ def get_data():
         start_dt.timestamp() + i * delta_t for i in range(int((end_dt - start_dt).total_seconds() / delta_t))
     ]
     house_area = 100  # in m²
-    num_residents = 4  # number of residents
+    num_residents = 2  # number of residents
     latitude = +41.2089  # degrees
     longitude = -8.6143  # degrees
     pv_irradiance = 1.0
-    pv_area = 8.0  # m2
+    pv_area = 10.0  # m2
     pv_efficiency = 0.2
     pv_tilt_deg = 35
     pv_azimuth_deg = 180
@@ -31,11 +31,11 @@ def get_data():
     bat_charging_power = 4.0
     bat_discharging_power = 4.0
     bat_capacity = 6
-    bat_soc_intial = 50
+    bat_soc_intial = 75
     bat_soc_specifications = ([0.0] * len(utc_timestamps)) [:-1] + [80.0]
     bat_charging_efficiency = 0.95
     bat_discharging_efficiency = 0.95
-    bat_command_penalty = [0.1,] * len(utc_timestamps)
+    bat_command_penalty = 0.01
     tariff_energy_to = [grid_tariff_export(datetime.fromtimestamp(ti, tz=timezone.utc)) for ti in utc_timestamps]
     tariff_energy_from = [grid_tariff_import(datetime.fromtimestamp(ti, tz=timezone.utc)) for ti in utc_timestamps]
 
@@ -99,8 +99,12 @@ def get_data():
                     'max_commands': {None: 4},
                     'nodeIndex': {None: ['PV01', 'LOAD01']},
                     'storageIndex': {None: ['BAT01']},
-                    'command_penalty': {i: v for i, v in enumerate(bat_command_penalty)},
+                    'command_penalty': {i: bat_command_penalty  for i, _ in enumerate(utc_timestamps)},
                     'soc_specifications': {i: v for i, v in enumerate(bat_soc_specifications)},
+                    'solar_surplus': {i: max(+0.0, pv_energy_i - load_energy_i) for i, (pv_energy_i, load_energy_i) in
+                                      enumerate(zip(pv_energy, load_energy))},
+                    'solar_deficit': {i: max(+0.0, load_energy_i - pv_energy_i) for i, (pv_energy_i, load_energy_i) in
+                                      enumerate(zip(pv_energy, load_energy))}
                 }
             }
         }
@@ -120,6 +124,9 @@ if __name__ == "__main__":
             return f"{round(pyo.value(x[i]), 3):5.3f}"
         except:
             return "  N/A"
+
+
+    detailed_results = get_detailed_results(results, instance)
 
     # Output:
     for ti in instance.t:

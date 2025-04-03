@@ -13,7 +13,8 @@ def run(
         solver_name: str = "appsi_highs",
         mip_abs_gap: float = 0.0001,
         mip_rel_gap: float = 0.001,
-        time_limit: int = 20
+        time_limit: int = 20,
+        model: pyo.AbstractModel = None
 ):
 
     if data is None:
@@ -28,13 +29,20 @@ def run(
         logging.error("Solver not available")
         exit(1)
 
-    model = models.SmartHome()
+    if model is None:
+        model = models.SmartHome()
+
     instance = model.create_instance(data)
-    results = solver.solve(instance, tee=False)
+
+    results = solver.solve(instance, tee=False, load_solutions=False)
+
+    if (results.solver.termination_condition == pyo.TerminationCondition.feasible):
+        instance.solutions.load_from(results)
+    else:
+        logging.error("Failed to run optimization")
 
     logging.debug("Solver Status:", results.solver.status)
     logging.debug("Termination Condition:", results.solver.termination_condition)
-    logging.debug(f"Objective Value = {instance.obj():.2f}")
 
     return results, instance
 
