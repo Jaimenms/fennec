@@ -2,7 +2,8 @@
 
 ![Logo](docs/imgs/logo-small.png)
 
-This project aims to develop a house optimization system.
+This project aims to develop an optimizer that allows the best usage stationary storage and electrical vehicles
+in a single house, a business fleet or distributed assets.
 
 For more information about the services, please refer to the documentation [here](./src/sel_ev_sdk/README.md).
 
@@ -23,18 +24,33 @@ pip install fennec==0.1.0a.dev0
 
 ## Package organization
 
-The Fennec package contains several different components.
-
-The components and their organization are described below.
+The Fennec package contains several different components organized according to the following tree:
 
 ```
-src/
-├── fennec/ : this is the main package folder
-│   ├── __init__.py : a client
-│   └── fennec.py : to be defined
-└───requirements.txt
+├──docs/ : docs folder
+├──notebooks/ : Jupyter notebooks studies
+├──src/
+│   ├── fennec/ : this is the main package folder
+│   │   ├── blocks : blocks package
+│   │   ├── examples : examples package
+│   │   ├── models : models package
+│   │   ├── tariffs : utils package
+│   │   ├── utils : utils package
+│   │   ├── __init__.py : a client
+│   │   ├── fennec.py : main package
+│   │   ├── README.md : package readme
+│   │   └── (...)
+│   └───requirements.txt
+├──tests/
+│   ├── integration/ : integration tests
+│   └── unit/ : unit tests
+├── .coveragerc : converage tests configuration
+├── .gitignore : gitignore
+├── poetry.lock
+├── poetry.toml
+├── pyproject.toml
+└── README.md : repo readme
 ```
-
 
 ## Preparing local environment
 
@@ -69,8 +85,6 @@ poetry shell
 ```
 
 5. Adding new dependencies
-
-Edit file pyproject.toml and insert the new dependency in the section "[tool.poetry.dependencies]".
 
 Updating dependencies
 ```bash
@@ -122,8 +136,6 @@ poetry run python build_coverage.py
 poetry run jupyter notebook
 ```
 
-
-
 ## Building and publishing the package
 
 1. Build the package
@@ -138,36 +150,8 @@ Open pyproject.toml and change the "version" field.
 
 Update the file CHANGELOG.md.
 
-3Publish the package
+3. Publish the package
 
 ```bash
 poetry publish
 ```
-
-
-## Building and publishing the layers
-
-1. Update poetry.lock and requirements.txt
-
-```bash
-poetry lock
-poetry export --output src/requirements.txt  --without-hashes --only main
-```
-
-2. Build the layer files for different python versions and architectures
-
-```bash
-python build_layers.py
-```
-
-3. Publish the layer files
-
-```bash
-python publish_layers.py --environment <environment_name> --profile_name <aws_profile_name> --region <aws_region>
-```
-
-em dev:
-
-python publish_layers.py --environment dev --profile_name dev --region eu-west-1
-
-

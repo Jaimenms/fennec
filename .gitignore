@@ -1,11 +1,12 @@
 .virtualenvs
 virtualenvs
+
 .idea
 __pycache__
 .pytest_cache
+.ipynb_checkpoints/
+
 dist
 cache
 artifacts
 .coverage
-requirements_layer.txt
-.ipynb_checkpoints/

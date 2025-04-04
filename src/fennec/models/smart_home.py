@@ -1,5 +1,6 @@
 import pyomo.environ as pyo
 from .. import blocks
+
 class SmartHome(pyo.AbstractModel):
 
     def __init__(

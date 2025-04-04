@@ -1,6 +1,7 @@
-from typing import List
+
 import pyomo.environ as pyo
 from pyomo.environ import Binary, PositiveReals
+
 
 
 class UnsettledGridBlock(pyo.ScalarBlock):
