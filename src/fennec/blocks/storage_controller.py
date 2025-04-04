@@ -23,10 +23,10 @@ class StorageController(pyo.Block):
         ###################### PARAMETERS ########################
 
         # Maximum number of arbitrage commands
-        m.max_commands = pyo.Param(initialize=100)
+        m.max_commands = pyo.Param(initialize=1)
 
         # Command penalty
-        m.command_penalty = pyo.Param(t, initialize=0.0, mutable=True)
+        m.command_penalty = pyo.Param(initialize=0.0, mutable=True)
 
         # Solar surplus energy in kWh
         m.solar_surplus = pyo.Param(t)
@@ -41,9 +41,14 @@ class StorageController(pyo.Block):
 
         # Binary variable for charging power (dimensionless) in arbitrage mode.
         m.charge_arbitrage = pyo.Var(t, domain=Binary)
+        # m.charge_arbitrage = pyo.Var(t, bounds=(0, 1), domain=PositiveReals)
 
         # Binary variable for discharging power (dimensionless) in arbitrage mode.
         m.discharge_arbitrage = pyo.Var(t, domain=Binary)
+        # m.discharge_arbitrage = pyo.Var(t, bounds=(0, 1), domain=PositiveReals)
+
+        # Mode variable: flag_sc[t] = 1 means self consumption mode; flag_sc[t] = 0 means self consumption mode.
+        m.flag_sc = pyo.Var(t, domain=Binary)
 
         # Continuous charging power (dimensionless) for m consumption.
         m.charge_sc = pyo.Var(t, bounds=(0, 1), domain=PositiveReals)
@@ -59,16 +64,20 @@ class StorageController(pyo.Block):
 
         #################### CONSTRAINTS ###########################
 
-        # In self-consumption mode (m[t] = 0), force arbitrage commands to zero.
-        # m.flag_arbitrage_const = pyo.Constraint(t, rule=lambda model, i: model.charge_arbitrage[i] + model.discharge_arbitrage[i] >= model.flag_arbitrage[i])
+        # Maximum number of arbitrage commands
+        m.max_commands_const = pyo.Constraint(
+             rule=lambda model: sum(model.flag_arbitrage[i] for i in t) <= 2 * model.max_commands
+        )
+
+        m.flag_const_1 = pyo.Constraint(t, rule=lambda model, i:  model.charge_arbitrage[i] + model.discharge_arbitrage[i] <= model.flag_arbitrage[i] )
+        m.flag_const_2 = pyo.Constraint(t, rule=lambda model, i:  model.charge_arbitrage[i] + model.discharge_arbitrage[i] >= model.flag_arbitrage[i])
 
         m.flag_arbitrage_0_const_x = pyo.Constraint(t, rule=lambda model, i: model.charge_arbitrage[i] <= model.flag_arbitrage[i])
         m.flag_arbitrage_0_const_z = pyo.Constraint(t, rule=lambda model, i: model.discharge_arbitrage[i] <= model.flag_arbitrage[i])
 
         # In arbitrage mode (m[t] = 1), force u[t] and v[t] to zero.
-        m.flag_arbitrage_1_const_u = pyo.Constraint(t, rule=lambda model, i: model.charge_sc[i] <= (1 - model.flag_arbitrage[i]))
-        m.flag_arbitrage_1_const_v = pyo.Constraint(t, rule=lambda model, i: model.discharge_sc[i] <= (1 - model.flag_arbitrage[i]))
-
+        m.flag_arbitrage_1_const_u = pyo.Constraint(t, rule=lambda model, i: model.charge_sc[i] <= model.flag_sc[i])
+        m.flag_arbitrage_1_const_v = pyo.Constraint(t, rule=lambda model, i: model.discharge_sc[i] <= model.flag_sc[i])
 
         # Calculate the energy charged and discharged by the battery
         def energy_to_rule(model, i):
@@ -85,26 +94,10 @@ class StorageController(pyo.Block):
             return energy_from == model.energy_from[i]
         m.energy_from_const = pyo.Constraint(t, rule=energy_from_rule)
 
-        # Control
-        def enforce_soc_upper_rule(model, i):
-            # If SOC[i] > 0.95, then must have soc_upper_flag[i] = 1.
-            # If SOC[i] <= 0.95, we can have soc_upper_flag[i] = 0.
-
-            # (a) Force flag = 1 if SOC[i] is bigger than 0.95:
-            #     SOC[i] - 0.95 <= M * soc_upper_flag[i]
-            # This means if SOC[i] > 0.95, then the LHS is positive, so soc_upper_flag[i] must be 1.
-            #
-            # (b) Optionally bound below:
-            #     SOC[i] - 0.95 >= -M * (1 - soc_upper_flag[i])
-            # ensures that if soc_upper_flag[i] = 0, then SOC[i] can't exceed 0.95 by too much.
-
-            return model.SOC[i] - 0.95 <= BIG_M * model.soc_upper_flag[i]
-
-        m.solar_surplus_const_1 = pyo.Constraint(t, m.storageIndex, rule=lambda model, i, si: model.charge_sc[i] * model.parent_block().storage[si].energy_to_limit <= model.solar_surplus[i] + BIG_M * (model.flag_arbitrage[i]))# + model.parent_block().storage[si].soc_upper_flag[i]))
-        m.solar_surplus_const_2 = pyo.Constraint(t, m.storageIndex, rule=lambda model, i, si: model.charge_sc[i] * model.parent_block().storage[si].energy_to_limit >= model.solar_surplus[i] - BIG_M * (model.flag_arbitrage[i]))# + model.parent_block().storage[si].soc_upper_flag[i]))
-
-        m.solar_deficit_const_1 = pyo.Constraint(t, m.storageIndex, rule=lambda model, i, si: model.discharge_sc[i] * model.parent_block().storage[si].energy_from_limit <= model.solar_deficit[i] + BIG_M * (model.flag_arbitrage[i]))# + model.parent_block().storage[si].soc_lower_flag[i]))
-        m.solar_deficit_const_2 = pyo.Constraint(t, m.storageIndex, rule=lambda model, i, si: model.discharge_sc[i] * model.parent_block().storage[si].energy_from_limit >= model.solar_deficit[i] - BIG_M * (model.flag_arbitrage[i]))# + model.parent_block().storage[si].soc_lower_flag[i]))
+        m.solar_surplus_const_1 = pyo.Constraint(t, m.storageIndex, rule=lambda model, i, si: model.charge_sc[i] * model.parent_block().storage[si].energy_to_limit <= model.solar_surplus[i] + BIG_M * (1-model.flag_sc[i]))
+        m.solar_surplus_const_2 = pyo.Constraint(t, m.storageIndex, rule=lambda model, i, si: model.charge_sc[i] * model.parent_block().storage[si].energy_to_limit >= model.solar_surplus[i] - BIG_M * (1-model.flag_sc[i]))
+        m.solar_deficit_const_1 = pyo.Constraint(t, m.storageIndex, rule=lambda model, i, si: model.discharge_sc[i] * model.parent_block().storage[si].energy_from_limit <= model.solar_deficit[i] + BIG_M * (1-model.flag_sc[i]))
+        m.solar_deficit_const_2 = pyo.Constraint(t, m.storageIndex, rule=lambda model, i, si: model.discharge_sc[i] * model.parent_block().storage[si].energy_from_limit >= model.solar_deficit[i] - BIG_M * (1-model.flag_sc[i]))
 
         def charge_rule(model, i, si):
             return model.parent_block().storage[si].charge[i] == model.charge_arbitrage[i] + model.charge_sc[i]
@@ -114,8 +107,20 @@ class StorageController(pyo.Block):
             return model.parent_block().storage[si].discharge[i] == model.discharge_arbitrage[i] + model.discharge_sc[i]
         m.controller_discharge_const = pyo.Constraint(t, m.storageIndex, rule=discharge_rule)
 
-        # Objective function
-        m.fob = pyo.Var(t, domain=PositiveReals)
+        m.diff_flag_sc = pyo.Var(t, domain=Binary)
+        def diff_flag_sc_const_1_rule(model, i):
+            # If i is the first time in model.t, skip the constraint
+            if i == model.parent_block().t.first():
+                return pyo.Constraint.Skip
+            return model.diff_flag_sc[i] >= model.flag_sc[i - 1] - model.flag_sc[i]
+        m.diff_flag_sc_const_1 = pyo.Constraint(t, rule=diff_flag_sc_const_1_rule)
+
+        def diff_flag_sc_const_2_rule(model, i):
+            # If i is the first time in model.t, skip the constraint
+            if i == model.parent_block().t.first():
+                return pyo.Constraint.Skip
+            return model.diff_flag_sc[i] >= model.flag_sc[i] - model.flag_sc[i - 1]
+        m.diff_flag_sc_const_2 = pyo.Constraint(t, rule=diff_flag_sc_const_2_rule)
 
         m.diff_flag_arbitrage = pyo.Var(t, domain=Binary)
         def diff_flag_arbitrage_const_1_rule(model, i):
@@ -132,44 +137,11 @@ class StorageController(pyo.Block):
             return model.diff_flag_arbitrage[i] >= model.flag_arbitrage[i] - model.flag_arbitrage[i - 1]
         m.diff_flag_arbitrage_const_2 = pyo.Constraint(t, rule=diff_flag_arbitrage_const_2_rule)
 
-        m.diff_charge_arbitrage = pyo.Var(t, domain=Binary)
-        def diff_charge_arbitrage_const_1_rule(model, i):
-            # If i is the first time in model.t, skip the constraint
-            if i == model.parent_block().t.first():
-                return pyo.Constraint.Skip
-            return model.diff_charge_arbitrage[i] >= model.charge_arbitrage[i - 1] - model.charge_arbitrage[i]
-        m.diff_charge_arbitrage_const_1 = pyo.Constraint(t, rule=diff_charge_arbitrage_const_1_rule)
-
-        def diff_charge_arbitrage_const_2_rule(model, i):
-            # If i is the first time in model.t, skip the constraint
-            if i == model.parent_block().t.first():
-                return pyo.Constraint.Skip
-            return model.diff_charge_arbitrage[i] >= model.charge_arbitrage[i] - model.charge_arbitrage[i - 1]
-        m.diff_charge_arbitrage_const_2 = pyo.Constraint(t, rule=diff_charge_arbitrage_const_2_rule)
-
-        m.diff_discharge_arbitrage = pyo.Var(t, domain=Binary)
-        def diff_discharge_arbitrage_const_1_rule(model, i):
-            # If i is the first time in model.t, skip the constraint
-            if i == model.parent_block().t.first():
-                return pyo.Constraint.Skip
-            return model.diff_discharge_arbitrage[i] >= model.discharge_arbitrage[i - 1] - model.discharge_arbitrage[i]
-        m.diff_discharge_arbitrage_const_1 = pyo.Constraint(t, rule=diff_discharge_arbitrage_const_1_rule)
-
-        def diff_discharge_arbitrage_const_2_rule(model, i):
-            # If i is the first time in model.t, skip the constraint
-            if i == model.parent_block().t.first():
-                return pyo.Constraint.Skip
-            return model.diff_discharge_arbitrage[i] >= model.discharge_arbitrage[i] - model.discharge_arbitrage[i - 1]
-        m.diff_discharge_arbitrage_const_2 = pyo.Constraint(t, rule=diff_discharge_arbitrage_const_2_rule)
-
+        # Objective function
+        m.fob = pyo.Var(t, domain=PositiveReals)
         m.fob_const = pyo.Constraint(
             t,
-            rule=lambda model, i: model.fob[i] == model.command_penalty[i] * (model.diff_flag_arbitrage[i] + model.diff_charge_arbitrage[i] + model.diff_discharge_arbitrage[i]),
-        )
-
-        # Maximum number of arbitrage commands
-        m.max_commands_const = pyo.Constraint(
-             rule=lambda model: sum(model.diff_charge_arbitrage[i] + model.diff_discharge_arbitrage[i] for i in t) <= model.max_commands
+            rule=lambda model, i: model.fob[i] == model.command_penalty * (model.diff_flag_sc[i] + model.diff_flag_arbitrage[i]),
         )
 
         # Battery SOC Specifications

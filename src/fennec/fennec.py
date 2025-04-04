@@ -34,17 +34,12 @@ def run(
 
     instance = model.create_instance(data)
 
-    results = solver.solve(instance, tee=False, load_solutions=False)
+    r = solver.solve(instance, tee=False)
 
-    if (results.solver.termination_condition == pyo.TerminationCondition.feasible):
-        instance.solutions.load_from(results)
-    else:
-        logging.error("Failed to run optimization")
+    logging.debug("Solver Status:", r.solver.status)
+    logging.debug("Termination Condition:", r.solver.termination_condition)
 
-    logging.debug("Solver Status:", results.solver.status)
-    logging.debug("Termination Condition:", results.solver.termination_condition)
-
-    return results, instance
+    return r, instance
 
 
 if __name__ == "__main__":

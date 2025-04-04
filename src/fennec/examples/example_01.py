@@ -19,23 +19,22 @@ def get_data():
     num_residents = 2  # number of residents
     latitude = +41.2089  # degrees
     longitude = -8.6143  # degrees
-    pv_irradiance = 1.0
     pv_area = 10.0  # m2
     pv_efficiency = 0.2
     pv_tilt_deg = 35
     pv_azimuth_deg = 180
-    grid_is_settled = True
     grid_contracted_power = 13  # in kW
     grid_tariff_export = tariffs.export_none_tariff
     grid_tariff_import = tariffs.import_bi_daily_tariff
     bat_charging_power = 4.0
     bat_discharging_power = 4.0
     bat_capacity = 6
-    bat_soc_intial = 75
+    bat_soc_initial = 75
     bat_soc_specifications = ([0.0] * len(utc_timestamps)) [:-1] + [80.0]
     bat_charging_efficiency = 0.95
     bat_discharging_efficiency = 0.95
     bat_command_penalty = 0.01
+    bat_max_commands = 1
     tariff_energy_to = [grid_tariff_export(datetime.fromtimestamp(ti, tz=timezone.utc)) for ti in utc_timestamps]
     tariff_energy_from = [grid_tariff_import(datetime.fromtimestamp(ti, tz=timezone.utc)) for ti in utc_timestamps]
 
@@ -89,17 +88,17 @@ def get_data():
                     'capacity': {None: bat_capacity},
                     'charging_efficiency': {None: bat_charging_efficiency},
                     'discharging_efficiency': {None: bat_discharging_efficiency},
-                    'soc_initial': {None: bat_soc_intial},
+                    'soc_initial': {None: bat_soc_initial},
                     'energy_to_limit': {None: bat_charging_energy_limit},
                     'energy_from_limit': {None: bat_discharging_energy_limit},
                 }
             },
             'storageController': {
                 'CONT01': {
-                    'max_commands': {None: 4},
+                    'max_commands': {None: bat_max_commands},
                     'nodeIndex': {None: ['PV01', 'LOAD01']},
                     'storageIndex': {None: ['BAT01']},
-                    'command_penalty': {i: bat_command_penalty  for i, _ in enumerate(utc_timestamps)},
+                    'command_penalty': {None: bat_command_penalty},
                     'soc_specifications': {i: v for i, v in enumerate(bat_soc_specifications)},
                     'solar_surplus': {i: max(+0.0, pv_energy_i - load_energy_i) for i, (pv_energy_i, load_energy_i) in
                                       enumerate(zip(pv_energy, load_energy))},

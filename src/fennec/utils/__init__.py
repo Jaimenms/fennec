@@ -68,7 +68,10 @@ def get_detailed_results(results, instance):
         try:
             if var.is_indexed():
                 for index in var:
-                    records.append({'Parameter': var.name, 'Index': index, 'Value': var[index].value})
+                    if hasattr(var[index], 'value'):
+                        records.append({'Parameter': var.name, 'Index': index, 'Value': var[index].value})
+                    else:
+                        records.append({'Parameter': var.name, 'Index': index, 'Value': var[index]})
             else:
                 records.append({'Parameter': var.name, 'Index': None, 'Value': var.value})
         except:

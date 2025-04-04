@@ -60,13 +60,9 @@ class Storage(pyo.Block):
 
         m.settling = pyo.Var(t, domain=Binary)
         m.settlement_const_1 = pyo.Constraint(t,
-                                                 rule=lambda model, i: model.energy_from[i] <= model.energy_from_limit * model.settling[i])
+                                                 rule=lambda model, i: model.energy_from[i] + model.external_from[i] <= model.energy_from_limit * model.settling[i])
         m.settlement_const_2 = pyo.Constraint(t,
-                                                 rule=lambda model, i: model.energy_to[i] <= model.energy_to_limit * (1.0 - model.settling[i]))
-
-
-        m.soc_upper_flag_const = pyo.Constraint(t, rule=lambda model, i: model.soc[i] - 95 <= 100*model.soc_upper_flag[i])
-        m.soc_lower_flag_const = pyo.Constraint(t, rule=lambda model, i: 5 - model.soc[i] <= 100*model.soc_lower_flag[i])
+                                                 rule=lambda model, i: model.energy_to[i] + model.external_to[i] <= model.energy_to_limit * (1.0 - model.settling[i]))
 
 
         # Guarantee that the energy to and from the battery are within the limits.
