@@ -8,39 +8,34 @@ from fennec.utils import calculate_house_load_power, calculate_pv_power, convert
 
 def get_data():
 
-    start_dt = datetime(2025, 3, 22, 0, 0, 0, tzinfo=timezone.utc)
-    end_dt = datetime(2025, 3, 23, 12, 0, 0, tzinfo=timezone.utc)
+    start_dt = datetime(2025, 6, 22, 16, 0, 0, tzinfo=timezone.utc)
+    end_dt = datetime(2025, 6, 24, 12, 0, 0, tzinfo=timezone.utc)
     delta_t = 15 * 60  # in seconds
 
     utc_timestamps = [
         start_dt.timestamp() + i * delta_t for i in range(int((end_dt - start_dt).total_seconds() / delta_t))
     ]
-    house_area = 100  # in m²
-    num_residents = 4  # number of residents
+    house_area = 10  # in m²
+    num_residents = 1  # number of residents
     latitude = +41.2089  # degrees
     longitude = -8.6143  # degrees
-    pv_irradiance = 1.0
-    pv_area = 8.0  # m2
+    pv_area = 20.0  # m2
     pv_efficiency = 0.2
     pv_tilt_deg = 35
     pv_azimuth_deg = 180
-    grid_is_settled = True
     grid_contracted_power = 6.75  # in kW
     grid_tariff_export = tariffs.export_none_tariff
     grid_tariff_import = tariffs.import_bi_daily_tariff
     ev_battery_capacity = 40.0
-    ev_is_plugged = [1.0, ] * len(utc_timestamps)
     ev_t_soc_objective_hour = '08:00'
     ev_is_unplugged_from = '09:00'
-    ev_is_unplugged_to = '16:00'
+    ev_is_unplugged_to = '13:00'
     ev_energy_consumed_when_unplugged = 0.2*ev_battery_capacity/(7*4)
-    ev_threshold_soc = None
-    ev_threshold_index = None
-    ev_soc_initial = 0
-    ev_soc_min = 20
-    ev_soc_objective = 90
+    ev_soc_initial = 40
+    ev_soc_min = 40
+    ev_soc_back_home = 50
+    ev_soc_objective = 80
     ev_charging_power = 2.0
-    ev_is_power_variable = False
     ev_charging_efficiency = 0.95
     ev_command_penalty = [0.001,] * len(utc_timestamps)
     ev_charge_objective_penalty = 0.5
@@ -98,7 +93,9 @@ def get_data():
                     'soc_initial': {None: ev_soc_initial},
                     'energy_to_limit': {None: ev_charging_energy_limit},
                     'is_plugged': {i: (1-v) for i, v in enumerate(get_is_plugged(utc_timestamps, ev_is_unplugged_from, ev_is_unplugged_to))},
-                    'external_from': {i: (v*ev_energy_consumed_when_unplugged) for i, v in enumerate(get_is_plugged(utc_timestamps, ev_is_unplugged_from, ev_is_unplugged_to))},
+                    't_soc_back_home': {None: [i+1 for i in get_positions_before_T(utc_timestamps, ev_is_unplugged_to)]},
+                    'soc_back_home': {i+1: ev_soc_back_home for i in get_positions_before_T(utc_timestamps, ev_is_unplugged_to)},
+                    # 'external_from': {i: (v*ev_energy_consumed_when_unplugged) for i, v in enumerate(get_is_plugged(utc_timestamps, ev_is_unplugged_from, ev_is_unplugged_to))},
                 }
             },
             'vehicleController': {

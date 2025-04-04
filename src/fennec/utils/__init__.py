@@ -221,47 +221,38 @@ def calculate_pv_power(utc_timestamp, area, efficiency, latitude, longitude, til
     return power_output
 
 
-def get_positions_before_T(utc_timestamps, T_str, ref_date=None):
+def get_positions_before_T(utc_timestamps, t, ref_date=None):
     """
     Returns the positions (indices) of the instants in utc_timestamps that are immediately before the
     time specified by T_str (formatted as "HH:MM") on a given reference date.
 
     Parameters:
         utc_timestamps (list or np.array): Array of UTC timestamps in seconds (assumed sorted).
-        T_str (str): Time in "HH:MM" format (UTC).
-        ref_date (datetime.date, optional): The reference date for T_str.
+        t (str): Time in "HH:MM" format (UTC).
+        ref_date (datetime.date, optional): The reference date for t.
             If None, today's UTC date is used.
 
     Returns:
         List[int]: List of indices corresponding to the maximum timestamp that is less than T.
     """
-    # Use today's date in UTC if no reference date is provided
-    if ref_date is None:
-        ref_date = datetime.now(timezone.utc).date()
 
-    # Combine the reference date with the time string to get a full datetime in UTC
-    T_datetime = datetime.strptime(f"{ref_date} {T_str}", "%Y-%m-%d %H:%M")
-    T_datetime = T_datetime.replace(tzinfo=timezone.utc)
-    T_timestamp = T_datetime.timestamp()
+    t_hour = int(t.split(":")[0])
+    t_minute = int(t.split(":")[1])
 
-    # Convert list to numpy array (assumes the array is sorted in ascending order)
-    utc_arr = np.array(utc_timestamps)
+    output = []
+    check = 0
+    for i, ts in enumerate(utc_timestamps):
+        ts_hour = datetime.fromtimestamp(ts, timezone.utc).hour
+        ts_minute = datetime.fromtimestamp(ts, timezone.utc).minute
 
-    # Find the insertion index for T_timestamp.
-    # searchsorted returns the index where T_timestamp should be inserted to maintain order.
-    idx = np.searchsorted(utc_arr, T_timestamp) - 1
+        if check == 0 and (ts_hour*60 + ts_minute) > t_hour*60 + t_minute:
+            if i > 0 :
+                output.append(i-1)
+            check = 1
+        elif (ts_hour*60 + ts_minute) <= t_hour*60 + t_minute:
+            check = 0
 
-    if idx < 0:
-        # No timestamps in the array are before T
-        return []
-
-    # Retrieve the value at the found index. This is the latest timestamp < T.
-    target_value = utc_arr[idx]
-
-    # Get all indices where the timestamp equals the target value (handling possible duplicates)
-    positions = np.where(utc_arr == target_value)[0]
-
-    return positions.tolist()
+    return output
 
 
 

@@ -42,6 +42,7 @@ class VehicleController(pyo.Block):
         #################### VARIABLES ###########################
 
         # Binary variable for charging power (dimensionless) in arbitrage mode.
+        # m.charge = pyo.Var(t, domain=PositiveReals)
         m.charge = pyo.Var(t, domain=Binary)
 
         # Energy charged by the battery in kWh

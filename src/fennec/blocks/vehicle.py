@@ -13,6 +13,8 @@ class Vehicle(pyo.Block):
         ###################### INDEX #############################
         t = m.parent_block().t
 
+        m.t_soc_back_home = pyo.Set()
+
         #################### VARIABLES ###########################
 
         # Variable for charging (dimensionless).
@@ -24,7 +26,15 @@ class Vehicle(pyo.Block):
         # Energy to battery (charging)
         m.energy_to = pyo.Var(t, domain=PositiveReals)
 
+        # External charging in kWh
+        m.external_to = pyo.Var(t, domain=PositiveReals)
+
+        # External discharging in kWh
+        m.external_from = pyo.Var(t, domain=PositiveReals)
+
         #################### PARAMETERS ###########################
+
+        m.soc_back_home = pyo.Param(m.t_soc_back_home)
 
         # Energy limits for charging in kWh
         m.energy_to_limit = pyo.Param()
@@ -32,23 +42,25 @@ class Vehicle(pyo.Block):
         # Battery energy capacity in kWh
         m.capacity = pyo.Param()
 
-        # External charging in kWh
-        m.external_to = pyo.Param(t, mutable=True, initialize=0)
-
-        # External discharging in kWh
-        m.external_from = pyo.Param(t, mutable=True, initialize=0)
-
-
         #################### CONSTRAINTS ###########################
 
         # Guarantee that the energy to and from the battery are within the limits.
         m.energy_to_const = pyo.Constraint(
-            t, rule=lambda model, i: model.energy_to[i] + model.external_to[i] == model.energy_to_limit * model.charge[i]
+            t, rule=lambda model, i: model.energy_to[i] == model.energy_to_limit * model.charge[i]
         )
 
         # Guarantee that if the battery is not available, the commands are zero.
         m.is_plugged = pyo.Param(t, initialize=1, mutable=True)
         m.is_plugged_charge_const = pyo.Constraint(t, rule=lambda model, i: model.charge[i] <= model.is_plugged[i])
+
+        m.external_energy_to_const = pyo.Constraint(
+            t, rule=lambda model, i: model.external_to[i] <= 100 * (1 - model.is_plugged[i])
+        )
+
+        m.external_energy_from_const = pyo.Constraint(
+            t, rule=lambda model, i: model.external_from[i] <= 100 * (1 - model.is_plugged[i])
+        )
+
 
         def battery_capacity_rule(model, i):
             # If i is the first time in model.t, skip the constraint
@@ -67,6 +79,13 @@ class Vehicle(pyo.Block):
         # Battery SOC Initial
         m.soc_initial = pyo.Param()
         m.soc_initial_const = pyo.Constraint(rule=lambda model: model.soc[min(model.parent_block().t)] == model.soc_initial)
+
+        def soc_back_home_rule(model, i):
+            for i_ in model.t_soc_back_home:
+                if i_ == i:
+                    return model.soc[i] == model.soc_back_home[i]
+            return pyo.Constraint.Skip
+        m.soc_back_home_const = pyo.Constraint(t, rule=soc_back_home_rule)
 
         #################### OBJECTIVE ###########################
 
