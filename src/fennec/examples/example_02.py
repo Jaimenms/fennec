@@ -3,111 +3,127 @@ from datetime import datetime, timezone
 import pyomo.environ as pyo
 from fennec import tariffs
 from fennec.fennec import run
-from fennec.utils import calculate_house_load_power, calculate_pv_power, convert_power_to_energy, get_positions_before_T, get_is_plugged
+from fennec.simulators.pv import calculate_pv_energy_timeseries
+from fennec.simulators.load import calculate_house_load_energy_timeseries
+from fennec.utils import get_utc_timestamps, convert_power_to_energy, get_positions_before_T, get_is_unplugged
+from fennec.utils import convert_list_to_dict as convert
 
 
 def get_data():
 
-    start_dt = datetime(2025, 6, 22, 16, 0, 0, tzinfo=timezone.utc)
-    end_dt = datetime(2025, 6, 24, 12, 0, 0, tzinfo=timezone.utc)
-    delta_t = 15 * 60  # in seconds
+    # Sample period in seconds
+    delta_t = 15 * 60
 
-    utc_timestamps = [
-        start_dt.timestamp() + i * delta_t for i in range(int((end_dt - start_dt).total_seconds() / delta_t))
-    ]
-    house_area = 10  # in m²
-    num_residents = 1  # number of residents
+    # Start and End Dates
+    start_dt = datetime(2025, 3, 22, 0, 0, 0, tzinfo=timezone.utc)
+    end_dt = datetime(2025, 3, 23, 12, 0, 0, tzinfo=timezone.utc)
+
+    # Timestamp list in seconds
+    utc_timestamps = get_utc_timestamps(start_dt, end_dt, delta_t)
+
+    # House Parameters
+    load_index = 'LOAD01'
+    house_area = 100  # in m²
+    num_residents = 4  # number of residents
     latitude = +41.2089  # degrees
     longitude = -8.6143  # degrees
-    pv_area = 20.0  # m2
-    pv_efficiency = 0.2
-    pv_tilt_deg = 35
-    pv_azimuth_deg = 180
+    house_load_energy_timeseries = calculate_house_load_energy_timeseries(
+        utc_timestamps=utc_timestamps,
+        area=house_area,
+        num_residents=num_residents,
+        longitude=longitude
+    )
+
+    # PV Parameters
+    pv_index = 'PV01'
+    pv_area = 8.0  # m2
+    pv_efficiency = 0.2 # -
+    pv_tilt_deg = 35 # deg
+    pv_azimuth_deg = 180 # deg
+    pv_energy_timeseries = calculate_pv_energy_timeseries(
+        utc_timestamps=utc_timestamps,
+        area=pv_area,
+        efficiency=pv_efficiency,
+        latitude=latitude,
+        longitude=longitude,
+        tilt_deg=pv_tilt_deg,
+        azimuth_deg=pv_azimuth_deg
+    )
+
+    # Grid Parameters
     grid_contracted_power = 6.75  # in kW
     grid_tariff_export = tariffs.export_none_tariff
     grid_tariff_import = tariffs.import_bi_daily_tariff
+    grid_energy_limit = convert_power_to_energy(grid_contracted_power, delta_t=delta_t)
+    tariff_energy_from_timeseries = grid_tariff_export.calculate_timeseries(utc_timestamps)
+    tariff_energy_to_timeseries = grid_tariff_import.calculate_timeseries(utc_timestamps)
+
+    # EV Parameters
+    ev_index = 'EV01'
     ev_battery_capacity = 40.0
-    ev_t_soc_objective_hour = '08:00'
     ev_is_unplugged_from = '09:00'
     ev_is_unplugged_to = '13:00'
-    ev_energy_consumed_when_unplugged = 0.2*ev_battery_capacity/(7*4)
     ev_soc_initial = 40
-    ev_soc_min = 40
     ev_soc_back_home = 50
-    ev_soc_objective = 80
     ev_charging_power = 2.0
     ev_charging_efficiency = 0.95
-    ev_command_penalty = [0.001,] * len(utc_timestamps)
-    ev_charge_objective_penalty = 0.5
-    tariff_energy_to = [grid_tariff_export(datetime.fromtimestamp(ti, tz=timezone.utc)) for ti in utc_timestamps]
-    tariff_energy_from = [grid_tariff_import(datetime.fromtimestamp(ti, tz=timezone.utc)) for ti in utc_timestamps]
-
-    load_power = [
-        calculate_house_load_power(
-            utc_timestamp=utc_timestamp, area=house_area, num_residents=num_residents, longitude=longitude
-        )
-        for utc_timestamp in utc_timestamps
-    ]
-    load_energy = convert_power_to_energy(load_power, utc_timestamps)
-
-    pv_power = [
-        calculate_pv_power(
-            utc_timestamp=utc_timestamp,
-            area=pv_area,
-            efficiency=pv_efficiency,
-            latitude=latitude,
-            longitude=longitude,
-            tilt_deg=pv_tilt_deg,
-            azimuth_deg=pv_azimuth_deg,
-        )
-        for utc_timestamp in utc_timestamps
-    ]
-    pv_energy = convert_power_to_energy(pv_power, utc_timestamps)
-
-    grid_energy_limit = convert_power_to_energy(grid_contracted_power, utc_timestamps)
     ev_charging_energy_limit = convert_power_to_energy(ev_charging_power, utc_timestamps)
+
+    # Controller Parameters
+    controller_index = 'CONT01'
+    controller_t_soc_objective_hour = '08:00'
+    controller_soc_objective = 80.0
+    controller_soc_min = 40
+    controller_max_commands = 4
+    controller_charge_objective_penalty = 0.5
+    controller_node_index = ['PV01', 'LOAD01']
+    controller_vehicle_index = ['EV01']
+    controller_command_penalty = [0.001,] * len(utc_timestamps)
 
     data = {
         None: {  # The key None tells Pyomo that these data items are for the top-level model.
             't': {None: [i for i, _ in enumerate(utc_timestamps)]},
-            'nodeIndex': {None: ['PV01', 'LOAD01']},
-            'vehicleIndex': {None: ['EV01']},
-            'vehicleControllerIndex': {None: ['CONT01']},
+            'nodeIndex': {None: [pv_index, load_index]},
+            'vehicleIndex': {None: [ev_index]},
+            'vehicleControllerIndex': {None: [controller_index]},
             'grid': {
                 'energy_limit': {None: grid_energy_limit},
-                'tariff_energy_from': {i: v for i, v in enumerate(tariff_energy_from)},
-                'tariff_energy_to': {i: v for i, v in enumerate(tariff_energy_to)},
+                'tariff_energy_from': convert(tariff_energy_from_timeseries),
+                'tariff_energy_to': convert(tariff_energy_to_timeseries),
             },
             'node': {
                 'PV01': {
-                    'energy_from': {i: v for i, v in enumerate(pv_energy)},
+                    'energy_from': convert(pv_energy_timeseries)
                 },
                 'LOAD01': {
-                    'energy_to': {i: v for i, v in enumerate(load_energy)},
-                },
+                    'energy_to': convert(house_load_energy_timeseries)
+                }
             },
             'vehicle': {
-                'EV01': {
+                ev_index: {
                     'capacity': {None: ev_battery_capacity},
                     'charging_efficiency': {None: ev_charging_efficiency},
                     'soc_initial': {None: ev_soc_initial},
                     'energy_to_limit': {None: ev_charging_energy_limit},
-                    'is_plugged': {i: (1-v) for i, v in enumerate(get_is_plugged(utc_timestamps, ev_is_unplugged_from, ev_is_unplugged_to))},
-                    't_soc_back_home': {None: [i+1 for i in get_positions_before_T(utc_timestamps, ev_is_unplugged_to)]},
-                    'soc_back_home': {i+1: ev_soc_back_home for i in get_positions_before_T(utc_timestamps, ev_is_unplugged_to)},
-                    # 'external_from': {i: (v*ev_energy_consumed_when_unplugged) for i, v in enumerate(get_is_plugged(utc_timestamps, ev_is_unplugged_from, ev_is_unplugged_to))},
+                    'is_plugged': {i: (1 - v) for i, v in
+                                   enumerate(get_is_unplugged(utc_timestamps, ev_is_unplugged_from, ev_is_unplugged_to))},
+                    't_soc_back_home': {
+                        None: [i + 1 for i in get_positions_before_T(utc_timestamps, ev_is_unplugged_to)]},
+                    'soc_back_home': {i + 1: ev_soc_back_home for i in
+                                      get_positions_before_T(utc_timestamps, ev_is_unplugged_to)},
                 }
             },
             'vehicleController': {
-                'CONT01': {
-                    'nodeIndex': {None: ['PV01', 'LOAD01']},
-                    'vehicleIndex': {None: ['EV01']},
-                    'max_commands': {None: 4},
-                    'soc_min': {None: ev_soc_min},
-                    't_soc_objective': {None: get_positions_before_T(utc_timestamps, ev_t_soc_objective_hour)},
-                    'soc_objective': {i: ev_soc_objective for i in get_positions_before_T(utc_timestamps, ev_t_soc_objective_hour)},
-                    'charge_objective_penalty': {None: ev_charge_objective_penalty},
-                    'command_penalty': {i: v for i, v in enumerate(ev_command_penalty)},
+                controller_index: {
+                    'nodeIndex': {None: controller_node_index},
+                    'vehicleIndex': {None: controller_vehicle_index},
+                    'max_commands': {None: controller_max_commands},
+                    'command_penalty': convert(controller_command_penalty),
+                    'charge_objective_penalty': {None: controller_charge_objective_penalty},
+                    'soc_min': {None: controller_soc_min},
+                    't_soc_objective': {None: get_positions_before_T(utc_timestamps, controller_t_soc_objective_hour)},
+                    'soc_objective': {i: controller_soc_objective for i in
+                                      get_positions_before_T(utc_timestamps, controller_t_soc_objective_hour)},
                 }
             }
         }

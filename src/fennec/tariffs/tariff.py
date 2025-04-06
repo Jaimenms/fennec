@@ -1,5 +1,5 @@
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass
 
 
@@ -43,3 +43,6 @@ class Tariff:
     def __call__(self, t: datetime):
         price_name = self.get_price_name(t)
         return self.get_price(price_name)
+
+    def calculate_timeseries(self, utc_timestamps):
+        return [self(datetime.fromtimestamp(ti, tz=timezone.utc)) for ti in utc_timestamps]
