@@ -1,0 +1,134 @@
+{
+  "name": "Porto house",
+  "house": {
+    "grid": {
+      "contracted_power_kw": 6.9,
+      "import_tariff": "bi_daily",
+      "export_tariff": "none"
+    },
+    "battery": {
+      "name": "battery",
+      "capacity_kwh": 10,
+      "max_charge_kw": 5,
+      "max_discharge_kw": 5,
+      "soc_min": 10,
+      "soc_max": 100,
+      "charge_efficiency": 0.95,
+      "discharge_efficiency": 0.95,
+      "terminal_value": "min_import_price",
+      "controller": {
+        "type": "huawei",
+        "max_commands": 4,
+        "command_penalty": 0.01
+      }
+    },
+    "ev": {
+      "name": "car",
+      "capacity_kwh": 40,
+      "max_charge_kw": 3.7,
+      "trip": {
+        "leave": "08:30",
+        "back": "18:00",
+        "soc_on_return": 40
+      },
+      "soc_target": {
+        "08:00": 80
+      },
+      "target_penalty": 0.5,
+      "max_commands": 6,
+      "command_penalty": 0.001
+    },
+    "pv": {
+      "name": "pv",
+      "simulate": {
+        "area_m2": 25,
+        "efficiency": 0.2,
+        "latitude": 41.2089,
+        "longitude": -8.6143,
+        "tilt_deg": 35,
+        "azimuth_deg": 180
+      },
+      "factor": 0.8
+    },
+    "load": {
+      "name": "house",
+      "kw_by_hour": [
+        0.6,
+        0.6,
+        0.6,
+        0.6,
+        0.6,
+        0.6,
+        1.2,
+        1.8,
+        1.8,
+        1.2,
+        1.2,
+        1.2,
+        1.2,
+        1.2,
+        1.2,
+        1.2,
+        1.2,
+        1.8,
+        3.0,
+        3.0,
+        3.0,
+        3.0,
+        1.8,
+        0.6
+      ]
+    }
+  },
+  "horizon": {
+    "fine_minutes": 15,
+    "fine_hours": 6,
+    "coarse_minutes": 60,
+    "total_hours": 36
+  },
+  "deadlines": {
+    "battery": {
+      "max_age_s": 900,
+      "required": true
+    },
+    "ev": {
+      "max_age_s": 1800,
+      "required": true
+    },
+    "meter": {
+      "max_age_s": 300,
+      "required": false
+    },
+    "forecast.pv": {
+      "max_age_s": 21600,
+      "required": false
+    },
+    "forecast.load": {
+      "max_age_s": 21600,
+      "required": false
+    }
+  },
+  "replan": {
+    "period_minutes": 15,
+    "event_debounce_s": 60,
+    "retry_s": 120
+  },
+  "limits": {
+    "battery": {
+      "commands_per_day": 12
+    },
+    "ev": {
+      "commands_per_day": 12
+    }
+  },
+  "learning": {
+    "enabled": true,
+    "days": 14,
+    "min_days": 3
+  },
+  "solver": {
+    "time_limit": 120,
+    "mip_rel_gap": 0.005
+  },
+  "audit": "fennec-rto.jsonl"
+}

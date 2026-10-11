@@ -1,0 +1,38 @@
+{
+  "home_assistant": {"url": "http://homeassistant.local:8123", "token": "LONG_LIVED_ACCESS_TOKEN"},
+  "daemon": {"unix": "/run/fennec/rto.sock"},
+  "poll_seconds": 60,
+
+  "battery": {
+    "device_name": "battery",
+    "soc": "sensor.battery_state_of_capacity",
+    "mode": "select.battery_working_mode",
+    "self_consumption_option": "Maximise Self Consumption",
+    "power": "sensor.battery_charge_discharge_power",
+    "pv_power": "sensor.inverter_input_power",
+    "power_scale": 0.001,
+    "pv_power_scale": 0.001,
+    "services": {
+      "force_charge": "huawei_solar.forcible_charge",
+      "force_discharge": "huawei_solar.forcible_discharge",
+      "hold": "huawei_solar.forcible_charge",
+      "target": {"device_id": "HUAWEI_BATTERY_DEVICE_ID"}
+    }
+  },
+
+  "ev": {
+    "device_name": "car",
+    "plugged": "binary_sensor.wallbox_connected",
+    "charging": "binary_sensor.wallbox_charging",
+    "soc": "sensor.car_battery_level",
+    "power": "sensor.wallbox_power",
+    "power_scale": 0.001,
+    "switch": "switch.wallbox_charging"
+  },
+
+  "meter": {
+    "import": "sensor.power_meter_consumption",
+    "export": "sensor.power_meter_exported",
+    "power_scale": 0.001
+  }
+}

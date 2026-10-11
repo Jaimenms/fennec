@@ -1,80 +1,61 @@
+"""Synthetic PV production from solar geometry (clear-sky, direct irradiance only)."""
+
 import math
-from datetime import datetime, timezone
+import warnings
+from datetime import datetime
+from typing import List
 
-from pysolar.radiation import get_radiation_direct
-from pysolar.solar import get_altitude, get_azimuth
-from ..utils import convert_power_to_energy
+warnings.filterwarnings("ignore", message="no explicit representation of timezones available for np.datetime64")
+warnings.filterwarnings("ignore", message="Leap seconds for year")
+
+from pysolar.radiation import get_radiation_direct  # noqa: E402
+from pysolar.solar import get_altitude, get_azimuth  # noqa: E402
+
+from ..horizon import Horizon
 
 
-def simulate_pv_power(utc_timestamp, area, efficiency, latitude, longitude, tilt_deg, azimuth_deg):
+def pv_power_kw(
+    instant: datetime,
+    area_m2: float,
+    efficiency: float,
+    latitude: float,
+    longitude: float,
+    tilt_deg: float = 35.0,
+    azimuth_deg: float = 180.0,
+) -> float:
     """
-    Estimate the instantaneous power output (in kW) of a tilted solar panel using PySolar.
+    Instantaneous output in kW of a tilted panel under clear sky.
 
-    Parameters:
-        utc_timestamp (float): Unix timestamp in seconds (UTC).
-        area (float): Panel area in m².
-        efficiency (float): Panel efficiency (e.g., 0.20 for 20%).
-        latitude (float): Latitude in degrees.
-        longitude (float): Longitude in degrees.
-        tilt_deg (float): Panel tilt angle from horizontal in degrees.
-        azimuth_deg (float): Panel azimuth in degrees (0 = North, 90 = East, etc.)
-
-    Returns:
-        float: Estimated power output in kW. Returns 0 if the sun is below the horizon or behind the panel.
+    ``azimuth_deg`` follows pysolar's convention (0 = North, 90 = East, 180 = South). Returns 0 when the
+    sun is below the horizon or behind the panel.
     """
-    # Convert the timestamp to a UTC datetime object.
-    dt = datetime.fromtimestamp(utc_timestamp, tz=timezone.utc)
-
-    # Get the solar altitude and azimuth using PySolar.
-    altitude = get_altitude(latitude, longitude, dt)
-    # If the sun is below the horizon, no power is produced.
+    altitude = get_altitude(latitude, longitude, instant)
     if altitude <= 0:
         return 0.0
+    solar_azimuth = get_azimuth(latitude, longitude, instant)
 
-    solar_azimuth = get_azimuth(latitude, longitude, dt)
-
-    # Convert all angles to radians.
-    alt_rad = math.radians(altitude)
-    solar_azimuth_rad = math.radians(solar_azimuth)
-    tilt_rad = math.radians(tilt_deg)
-    panel_azimuth_rad = math.radians(azimuth_deg)
-
-    # Calculate the incidence angle using the formula:
-    # cos(theta_i) = sin(alt)*cos(tilt) + cos(alt)*sin(tilt)*cos(solar_azimuth - panel_azimuth)
-    cos_theta_i = math.sin(alt_rad) * math.cos(tilt_rad) + math.cos(alt_rad) * math.sin(tilt_rad) * math.cos(
-        solar_azimuth_rad - panel_azimuth_rad
+    alt = math.radians(altitude)
+    tilt = math.radians(tilt_deg)
+    cos_incidence = math.sin(alt) * math.cos(tilt) + math.cos(alt) * math.sin(tilt) * math.cos(
+        math.radians(solar_azimuth) - math.radians(azimuth_deg)
     )
-
-    # If the sun is behind the panel, no effective irradiance is received.
-    if cos_theta_i < 0:
+    if cos_incidence < 0:
         return 0.0
 
-    # Obtain the direct normal irradiance (DNI) from PySolar (in W/m²).
-    dni = get_radiation_direct(dt, altitude)
-
-    # Compute the effective irradiance on the panel (W/m²) adjusted by the incidence angle.
-    effective_irradiance = dni * cos_theta_i
-
-    # Convert irradiance from W/m² to kW/m².
-    effective_irradiance_kw = effective_irradiance / 1000.0
-
-    # Compute the panel power output in kW.
-    power_output = area * efficiency * effective_irradiance_kw
-    return power_output
+    irradiance_w_m2 = get_radiation_direct(instant, altitude) * cos_incidence
+    return area_m2 * efficiency * irradiance_w_m2 / 1000.0
 
 
-def calculate_pv_energy_timeseries(utc_timestamps, area, efficiency, latitude, longitude, tilt_deg, azimuth_deg):
-    power = [
-        simulate_pv_power(
-            utc_timestamp=utc_timestamp,
-            area=area,
-            efficiency=efficiency,
-            latitude=latitude,
-            longitude=longitude,
-            tilt_deg=tilt_deg,
-            azimuth_deg=azimuth_deg,
-        )
-        for utc_timestamp in utc_timestamps
-    ]
-
-    return convert_power_to_energy(power, utc_timestamps)
+def simulate_pv_energy(
+    horizon: Horizon,
+    area_m2: float,
+    efficiency: float,
+    latitude: float,
+    longitude: float,
+    tilt_deg: float = 35.0,
+    azimuth_deg: float = 180.0,
+) -> List[float]:
+    """kWh produced in each step of the horizon (power sampled every 15 minutes inside the step)."""
+    return horizon.integrate(
+        lambda ts: pv_power_kw(ts, area_m2, efficiency, latitude, longitude, tilt_deg, azimuth_deg)
+    )

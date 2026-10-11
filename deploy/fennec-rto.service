@@ -1,0 +1,35 @@
+# systemd unit for the Fennec real-time optimizer on a Raspberry Pi (64-bit Raspberry Pi OS).
+# See deploy/README.md for the installation steps. The connector that talks to the inverter and the
+# charger is a separate service that connects to the Unix socket below.
+
+[Unit]
+Description=Fennec real-time optimizer
+Documentation=https://github.com/Jaimenms/fennec
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=fennec
+Group=fennec
+WorkingDirectory=/var/lib/fennec
+ExecStart=/opt/fennec/venv/bin/python -m fennec.rto /etc/fennec/rto.json \
+    --unix /run/fennec/rto.sock --tick 5 --status-every 60 --audit /var/lib/fennec/audit.jsonl
+Restart=on-failure
+RestartSec=10
+# the socket directory is created and removed with the service; the connector runs as the same group
+RuntimeDirectory=fennec
+RuntimeDirectoryMode=0770
+UMask=0007
+# keep the Pi responsive during a solve
+Nice=5
+# hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/fennec
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
