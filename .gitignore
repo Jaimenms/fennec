@@ -10,3 +10,8 @@ dist
 cache
 artifacts
 .coverage
+.venv
+*.egg-info
+notebooks/.ipynb_checkpoints/
+fennec-rto.jsonl
+*.audit.jsonl

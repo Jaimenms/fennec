@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "fennec"
-version = "0.1.0a.dev0"
-description = "Fennec is a energy management optmizer for a smart home"
+version = "0.2.0"
+description = "Cost optimizer for the flexible assets of a smart home: batteries, EVs and more, with brand-specific controllers"
 license = "Proprietary"
 authors = [
     "Jaime Souza <jaimenms@gmail.com>",
@@ -24,17 +24,24 @@ python = ">=3.12,<3.15"
 highspy = "^1.10"
 pyomo = "^6.9.1"
 pysolar = "^0.13"
+pandas = { version = "^2.1", optional = true }
+matplotlib = { version = "^3.10", optional = true }
 
-[tool.poetry.dev-dependencies]
-checksumdir = "^1.2"
+[tool.poetry.extras]
+viz = ["pandas", "matplotlib"]
+
+[tool.poetry.group.dev.dependencies]
 pytest = "*"
 black = "^24.4"
 coverage = "^7.4"
-coverage-badge = "^1.1"
 jupyter = "^1.0.0"
 ipykernel = "^6.0.0"
+nbconvert = "^7.16"
 pandas = "^2.1"
 matplotlib = "^3.10"
+
+[tool.poetry.scripts]
+fennec = "fennec.cli:main"
 
 [[tool.poetry.source]]
 name = "custom_pypi"
@@ -53,7 +60,11 @@ build-backend = "poetry.core.masonry.api"
 skip_empty = true
 
 [tool.pytest.ini_options]
-pythonpath = "."
+pythonpath = ["src", "."]
 testpaths = [
     "tests/unit",
+]
+filterwarnings = [
+    "ignore:no explicit representation of timezones available:UserWarning",
+    "ignore:Leap seconds for year:UserWarning",
 ]
